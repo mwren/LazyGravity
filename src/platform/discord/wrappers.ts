@@ -138,13 +138,31 @@ function toDiscordComponents(
     });
 }
 
+/** Options controlling platform-specific behaviour of payload conversion. */
+export interface ToDiscordPayloadOpts {
+    /**
+     * When true, the ephemeral flag on the payload is honoured.
+     * Ephemeral messages are only valid for interaction responses —
+     * passing this as true for a regular channel message would cause
+     * a Discord API error. Defaults to false.
+     */
+    readonly allowEphemeral?: boolean;
+}
+
 /**
  * Convert a platform MessagePayload to discord.js message send/reply options.
  *
  * This is the central conversion point used by wrapDiscordChannel.send(),
  * wrapDiscordMessage.reply(), and interaction reply/update methods.
+ *
+ * @param payload  The platform-agnostic message payload.
+ * @param opts     Conversion options. Only interaction callers should set
+ *                 `allowEphemeral: true`.
  */
-export function toDiscordPayload(payload: MessagePayload): Record<string, unknown> {
+export function toDiscordPayload(
+    payload: MessagePayload,
+    opts: ToDiscordPayloadOpts = {},
+): Record<string, unknown> {
     const result: Record<string, unknown> = {};
 
     if (payload.text !== undefined) {
@@ -165,11 +183,32 @@ export function toDiscordPayload(payload: MessagePayload): Record<string, unknow
         );
     }
 
-    if (payload.ephemeral === true) {
+    if (opts.allowEphemeral === true && payload.ephemeral === true) {
         result.flags = MessageFlags.Ephemeral;
     }
 
     return result;
+}
+
+/** Reusable opts constant for interaction callers that allow ephemeral. */
+const EPHEMERAL_ALLOWED: ToDiscordPayloadOpts = Object.freeze({ allowEphemeral: true });
+
+/**
+ * Build a minimal PlatformChannel fallback when `interaction.channel` is null
+ * (e.g. DMs or uncached channels). Uses `interaction.channelId` which is
+ * always available as a string.
+ */
+function buildFallbackChannel(channelId: string): PlatformChannel {
+    return {
+        id: channelId,
+        platform: 'discord',
+        name: undefined,
+        async send(): Promise<PlatformSentMessage> {
+            throw new Error(
+                `Cannot send to channel ${channelId}: channel object is not available (DM or uncached)`,
+            );
+        },
+    };
 }
 
 // ---------------------------------------------------------------------------
@@ -257,7 +296,9 @@ export function wrapDiscordMessage(message: Message): PlatformMessage {
 /** Wrap a discord.js ButtonInteraction as a PlatformButtonInteraction. */
 export function wrapDiscordButton(interaction: ButtonInteraction): PlatformButtonInteraction {
     const user = wrapDiscordUser(interaction.user);
-    const channel = wrapDiscordChannel(interaction.channel as TextChannel);
+    const channel = interaction.channel
+        ? wrapDiscordChannel(interaction.channel as TextChannel)
+        : buildFallbackChannel(interaction.channelId);
 
     return {
         id: interaction.id,
@@ -270,16 +311,16 @@ export function wrapDiscordButton(interaction: ButtonInteraction): PlatformButto
             await interaction.deferUpdate();
         },
         async reply(payload: MessagePayload): Promise<void> {
-            await interaction.reply(toDiscordPayload(payload) as Parameters<ButtonInteraction['reply']>[0]);
+            await interaction.reply(toDiscordPayload(payload, EPHEMERAL_ALLOWED) as Parameters<ButtonInteraction['reply']>[0]);
         },
         async update(payload: MessagePayload): Promise<void> {
-            await interaction.update(toDiscordPayload(payload) as Parameters<ButtonInteraction['update']>[0]);
+            await interaction.update(toDiscordPayload(payload, EPHEMERAL_ALLOWED) as Parameters<ButtonInteraction['update']>[0]);
         },
         async editReply(payload: MessagePayload): Promise<void> {
-            await interaction.editReply(toDiscordPayload(payload) as Parameters<ButtonInteraction['editReply']>[0]);
+            await interaction.editReply(toDiscordPayload(payload, EPHEMERAL_ALLOWED) as Parameters<ButtonInteraction['editReply']>[0]);
         },
         async followUp(payload: MessagePayload): Promise<PlatformSentMessage> {
-            const sent = await interaction.followUp(toDiscordPayload(payload) as Parameters<ButtonInteraction['followUp']>[0]);
+            const sent = await interaction.followUp(toDiscordPayload(payload, EPHEMERAL_ALLOWED) as Parameters<ButtonInteraction['followUp']>[0]);
             return wrapDiscordSentMessage(sent as Message);
         },
     };
@@ -288,7 +329,9 @@ export function wrapDiscordButton(interaction: ButtonInteraction): PlatformButto
 /** Wrap a discord.js StringSelectMenuInteraction as a PlatformSelectInteraction. */
 export function wrapDiscordSelect(interaction: StringSelectMenuInteraction): PlatformSelectInteraction {
     const user = wrapDiscordUser(interaction.user);
-    const channel = wrapDiscordChannel(interaction.channel as TextChannel);
+    const channel = interaction.channel
+        ? wrapDiscordChannel(interaction.channel as TextChannel)
+        : buildFallbackChannel(interaction.channelId);
 
     return {
         id: interaction.id,
@@ -302,16 +345,16 @@ export function wrapDiscordSelect(interaction: StringSelectMenuInteraction): Pla
             await interaction.deferUpdate();
         },
         async reply(payload: MessagePayload): Promise<void> {
-            await interaction.reply(toDiscordPayload(payload) as Parameters<StringSelectMenuInteraction['reply']>[0]);
+            await interaction.reply(toDiscordPayload(payload, EPHEMERAL_ALLOWED) as Parameters<StringSelectMenuInteraction['reply']>[0]);
         },
         async update(payload: MessagePayload): Promise<void> {
-            await interaction.update(toDiscordPayload(payload) as Parameters<StringSelectMenuInteraction['update']>[0]);
+            await interaction.update(toDiscordPayload(payload, EPHEMERAL_ALLOWED) as Parameters<StringSelectMenuInteraction['update']>[0]);
         },
         async editReply(payload: MessagePayload): Promise<void> {
-            await interaction.editReply(toDiscordPayload(payload) as Parameters<StringSelectMenuInteraction['editReply']>[0]);
+            await interaction.editReply(toDiscordPayload(payload, EPHEMERAL_ALLOWED) as Parameters<StringSelectMenuInteraction['editReply']>[0]);
         },
         async followUp(payload: MessagePayload): Promise<PlatformSentMessage> {
-            const sent = await interaction.followUp(toDiscordPayload(payload) as Parameters<StringSelectMenuInteraction['followUp']>[0]);
+            const sent = await interaction.followUp(toDiscordPayload(payload, EPHEMERAL_ALLOWED) as Parameters<StringSelectMenuInteraction['followUp']>[0]);
             return wrapDiscordSentMessage(sent as Message);
         },
     };
@@ -335,7 +378,9 @@ function extractCommandOptions(
 /** Wrap a discord.js ChatInputCommandInteraction as a PlatformCommandInteraction. */
 export function wrapDiscordCommand(interaction: ChatInputCommandInteraction): PlatformCommandInteraction {
     const user = wrapDiscordUser(interaction.user);
-    const channel = wrapDiscordChannel(interaction.channel as TextChannel);
+    const channel = interaction.channel
+        ? wrapDiscordChannel(interaction.channel as TextChannel)
+        : buildFallbackChannel(interaction.channelId);
     const options = extractCommandOptions(interaction);
 
     return {
@@ -349,13 +394,13 @@ export function wrapDiscordCommand(interaction: ChatInputCommandInteraction): Pl
             await interaction.deferReply({ flags: opts?.ephemeral ? MessageFlags.Ephemeral : undefined });
         },
         async reply(payload: MessagePayload): Promise<void> {
-            await interaction.reply(toDiscordPayload(payload) as Parameters<ChatInputCommandInteraction['reply']>[0]);
+            await interaction.reply(toDiscordPayload(payload, EPHEMERAL_ALLOWED) as Parameters<ChatInputCommandInteraction['reply']>[0]);
         },
         async editReply(payload: MessagePayload): Promise<void> {
-            await interaction.editReply(toDiscordPayload(payload) as Parameters<ChatInputCommandInteraction['editReply']>[0]);
+            await interaction.editReply(toDiscordPayload(payload, EPHEMERAL_ALLOWED) as Parameters<ChatInputCommandInteraction['editReply']>[0]);
         },
         async followUp(payload: MessagePayload): Promise<PlatformSentMessage> {
-            const sent = await interaction.followUp(toDiscordPayload(payload) as Parameters<ChatInputCommandInteraction['followUp']>[0]);
+            const sent = await interaction.followUp(toDiscordPayload(payload, EPHEMERAL_ALLOWED) as Parameters<ChatInputCommandInteraction['followUp']>[0]);
             return wrapDiscordSentMessage(sent as Message);
         },
     };

@@ -111,6 +111,22 @@ describe('markdownToTelegramHtml', () => {
     it('handles empty string', () => {
         expect(markdownToTelegramHtml('')).toBe('');
     });
+
+    it('does not double-escape HTML tags from prior code block passes inside bold', () => {
+        // Bold text containing inline code: code is processed first producing
+        // HTML tags, then bold wraps around the result. The content inside <b>
+        // must NOT be escaped to avoid breaking the <code> tags.
+        const input = '**use `npm` now**';
+        const result = markdownToTelegramHtml(input);
+        expect(result).toContain('<code>npm</code>');
+        expect(result).not.toContain('&lt;code&gt;');
+    });
+
+    it('preserves HTML tags from link processing inside bold', () => {
+        const input = '**click [here](https://example.com)**';
+        const result = markdownToTelegramHtml(input);
+        expect(result).toContain('<a href="https://example.com">here</a>');
+    });
 });
 
 // ---------------------------------------------------------------------------

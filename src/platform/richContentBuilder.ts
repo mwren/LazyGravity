@@ -69,8 +69,13 @@ export function withImage(rc: RichContent, imageUrl: string): RichContent {
 
 /**
  * Apply a sequence of transforms to a RichContent.
+ * Each transform is a function `(rc: RichContent) => RichContent`.
  * Usage:
- *   pipe(createRichContent(), withTitle('Hello'), withColor(0x00FF00))
+ *   pipe(
+ *     createRichContent(),
+ *     (rc) => withTitle(rc, 'Hello'),
+ *     (rc) => withColor(rc, 0x00FF00),
+ *   )
  */
 export function pipe(
     initial: RichContent,

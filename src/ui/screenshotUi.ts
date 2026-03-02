@@ -26,7 +26,7 @@ export async function buildScreenshotPayload(
             };
             return { files: [file] };
         }
-        return { text: `Screenshot failed: ${result.error}` };
+        return { text: `Screenshot failed: ${result.error ?? 'Unknown error'}` };
     } catch (e: any) {
         return { text: `Screenshot error: ${e.message}` };
     }

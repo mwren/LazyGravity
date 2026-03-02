@@ -30,6 +30,7 @@ export class TelegramAdapter implements PlatformAdapter {
     private readonly botUserId: string;
     private events: PlatformAdapterEvents | null = null;
     private started = false;
+    private handlersRegistered = false;
 
     constructor(bot: TelegramBotLike, botUserId: string) {
         this.bot = bot;
@@ -48,7 +49,10 @@ export class TelegramAdapter implements PlatformAdapter {
         }
 
         this.events = events;
-        this.registerHandlers();
+        if (!this.handlersRegistered) {
+            this.registerHandlers();
+            this.handlersRegistered = true;
+        }
         this.bot.start();
         this.started = true;
 
@@ -114,9 +118,9 @@ export class TelegramAdapter implements PlatformAdapter {
             }
         });
 
-        // Callback queries (button presses)
+        // Callback queries (button presses and select menu selections)
         this.bot.on('callback_query:data', async (ctx: any) => {
-            if (!this.events?.onButtonInteraction) return;
+            if (!this.events?.onButtonInteraction && !this.events?.onSelectInteraction) return;
 
             try {
                 const query: TelegramCallbackQueryLike = ctx.callbackQuery;
@@ -130,7 +134,6 @@ export class TelegramAdapter implements PlatformAdapter {
                     const selectCustomId = (query.data ?? '').slice(0, colonIdx);
                     const selectedValue = (query.data ?? '').slice(colonIdx + 1);
 
-                    // Try to handle as select interaction
                     await this.events.onSelectInteraction({
                         id: query.id,
                         platform: 'telegram',
@@ -148,7 +151,9 @@ export class TelegramAdapter implements PlatformAdapter {
                     return;
                 }
 
-                await this.events.onButtonInteraction(interaction);
+                if (this.events.onButtonInteraction) {
+                    await this.events.onButtonInteraction(interaction);
+                }
             } catch (error) {
                 this.emitError(error);
             }

@@ -33,6 +33,7 @@ function createMockBot(): TelegramBotLike & {
                 title: 'Test Chat',
                 type: 'group',
             }),
+            answerCallbackQuery: jest.fn().mockResolvedValue(true),
         },
         async emit(event: string, ctx: any): Promise<void> {
             for (const h of handlers) {
@@ -149,6 +150,20 @@ describe('TelegramAdapter', () => {
             await adapter.start(events);
 
             expect(bot.start).toHaveBeenCalledTimes(2);
+        });
+
+        it('does not register handlers twice on restart', async () => {
+            const bot = createMockBot();
+            const events = createMockEvents();
+            const adapter = new TelegramAdapter(bot, 'bot_1');
+
+            await adapter.start(events);
+            const firstCount = bot.handlers.length;
+
+            await adapter.stop();
+            await adapter.start(events);
+
+            expect(bot.handlers.length).toBe(firstCount);
         });
     });
 
@@ -304,6 +319,58 @@ describe('TelegramAdapter', () => {
             const interaction = events.onSelectInteraction!.mock.calls[0][0];
             expect(interaction.customId).toBe('menu_id');
             expect(interaction.values).toEqual(['selected_value']);
+        });
+
+        it('routes select callback even without onButtonInteraction', async () => {
+            const bot = createMockBot();
+            const events = createMockEvents();
+            const eventsSelectOnly = {
+                ...events,
+                onButtonInteraction: undefined,
+            };
+            const adapter = new TelegramAdapter(bot, 'bot_1');
+
+            await adapter.start(eventsSelectOnly);
+
+            await bot.emit('callback_query:data', {
+                callbackQuery: {
+                    id: 'cb_sel',
+                    from: { id: 42, first_name: 'Alice', is_bot: false },
+                    message: {
+                        message_id: 50,
+                        chat: { id: 1, type: 'group' },
+                        date: 1700000000,
+                    },
+                    data: 'menu:value1',
+                },
+            });
+
+            expect(events.onSelectInteraction).toHaveBeenCalledTimes(1);
+            const interaction = events.onSelectInteraction.mock.calls[0][0];
+            expect(interaction.customId).toBe('menu');
+            expect(interaction.values).toEqual(['value1']);
+        });
+
+        it('ignores callback when neither button nor select handler is set', async () => {
+            const bot = createMockBot();
+            const adapter = new TelegramAdapter(bot, 'bot_1');
+
+            // Start with only onReady - no button or select handlers
+            await adapter.start({ onReady: jest.fn() });
+
+            // Should not throw
+            await bot.emit('callback_query:data', {
+                callbackQuery: {
+                    id: 'cb_ignored',
+                    from: { id: 42, first_name: 'Bob', is_bot: false },
+                    message: {
+                        message_id: 50,
+                        chat: { id: 1, type: 'group' },
+                        date: 1700000000,
+                    },
+                    data: 'menu:value',
+                },
+            });
         });
 
         it('calls onError when callback handler throws', async () => {

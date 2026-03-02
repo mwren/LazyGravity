@@ -167,6 +167,7 @@ describe('DiscordAdapter', () => {
             const mockChannel = {
                 id: 'ch-42',
                 name: 'test-channel',
+                isTextBased: () => true,
                 send: jest.fn(),
             };
             const client = createMockClient();
@@ -190,6 +191,40 @@ describe('DiscordAdapter', () => {
             const result = await adapter.getChannel('nonexistent');
 
             expect(result).toBeNull();
+        });
+
+        it('returns null when the channel is not text-based', async () => {
+            const voiceChannel = {
+                id: 'vc-1',
+                name: 'voice-channel',
+                isTextBased: () => false,
+                send: jest.fn(),
+            };
+            const client = createMockClient();
+            client.channels.fetch.mockResolvedValue(voiceChannel);
+            const adapter = new DiscordAdapter(client as any);
+
+            const result = await adapter.getChannel('vc-1');
+
+            expect(result).toBeNull();
+        });
+
+        it('wraps text-based channels successfully', async () => {
+            const textChannel = {
+                id: 'tc-1',
+                name: 'text-channel',
+                isTextBased: () => true,
+                send: jest.fn(),
+            };
+            const client = createMockClient();
+            client.channels.fetch.mockResolvedValue(textChannel);
+            const adapter = new DiscordAdapter(client as any);
+
+            const result = await adapter.getChannel('tc-1');
+
+            expect(result).not.toBeNull();
+            expect(result!.id).toBe('tc-1');
+            expect(result!.platform).toBe('discord');
         });
 
         it('returns null when client.channels.fetch() throws', async () => {

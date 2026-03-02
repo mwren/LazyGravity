@@ -60,18 +60,31 @@ export function markdownToTelegramHtml(text: string): string {
     );
 
     // Bold **text** (must come before italic)
+    //
+    // HTML escaping note: Content inside bold/italic/strikethrough is NOT
+    // escaped here. Earlier regex passes (code blocks, inline code, links)
+    // have already replaced their matched text with HTML tags (e.g.
+    // <code>...</code>). Since the bold regex `.+?` can span text that
+    // includes those prior HTML outputs, calling escapeHtml() would
+    // double-escape them (e.g. &lt;code&gt;).
+    //
+    // This is safe because Telegram's Bot API HTML parser rejects unknown
+    // tags with a parse error rather than executing them, so raw `<` / `>`
+    // in user text will cause a Telegram API error, not an XSS vector.
     result = result.replace(
         /\*\*(.+?)\*\*/g,
         (_match, content: string) => `<b>${content}</b>`,
     );
 
     // Italic *text* (single asterisk, not inside bold)
+    // Same HTML escaping rationale as bold above.
     result = result.replace(
         /(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g,
         (_match, content: string) => `<i>${content}</i>`,
     );
 
     // Strikethrough ~~text~~
+    // Same HTML escaping rationale as bold above.
     result = result.replace(
         /~~(.+?)~~/g,
         (_match, content: string) => `<s>${content}</s>`,

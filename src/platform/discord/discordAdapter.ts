@@ -94,12 +94,13 @@ export class DiscordAdapter implements PlatformAdapter {
 
     /**
      * Retrieve a channel by its Discord snowflake ID.
-     * Returns null if the channel is not found or not fetchable.
+     * Returns null if the channel is not found, not fetchable, or not text-based.
      */
     async getChannel(channelId: string): Promise<PlatformChannel | null> {
         try {
             const channel = await this.client.channels.fetch(channelId);
             if (!channel) return null;
+            if (!channel.isTextBased()) return null;
             return wrapDiscordChannel(channel as TextChannel);
         } catch {
             return null;

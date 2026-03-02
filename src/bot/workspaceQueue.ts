@@ -40,11 +40,16 @@ export class WorkspaceQueue {
         return next;
     }
 
-    /** Decrement queue depth. Returns the new depth (min 0). */
+    /** Decrement queue depth. Returns the new depth (min 0). Cleans up Map entries when depth reaches 0. */
     decrementDepth(workspacePath: string): number {
         const current = this.depths.get(workspacePath) ?? 1;
         const next = Math.max(0, current - 1);
-        this.depths.set(workspacePath, next);
+        if (next === 0) {
+            this.depths.delete(workspacePath);
+            this.queues.delete(workspacePath);
+        } else {
+            this.depths.set(workspacePath, next);
+        }
         return next;
     }
 }

@@ -5,6 +5,9 @@ import {
     wrapDiscordSentMessage,
     wrapDiscordChannel,
     wrapDiscordMessage,
+    wrapDiscordButton,
+    wrapDiscordSelect,
+    wrapDiscordCommand,
 } from '../../../src/platform/discord/wrappers';
 
 import {
@@ -212,16 +215,30 @@ describe('toDiscordPayload', () => {
         expect(files[0]).toBeInstanceOf(AttachmentBuilder);
     });
 
-    it('sets ephemeral flag with MessageFlags.Ephemeral', () => {
+    it('sets ephemeral flag when allowEphemeral is true and payload.ephemeral is true', () => {
         const payload: MessagePayload = { text: 'secret', ephemeral: true };
-        const result = toDiscordPayload(payload);
+        const result = toDiscordPayload(payload, { allowEphemeral: true });
 
         expect(result.flags).toBe(MessageFlags.Ephemeral);
     });
 
-    it('does not set flags when ephemeral is false', () => {
-        const payload: MessagePayload = { text: 'public', ephemeral: false };
+    it('does NOT set ephemeral flag when allowEphemeral is omitted (default)', () => {
+        const payload: MessagePayload = { text: 'secret', ephemeral: true };
         const result = toDiscordPayload(payload);
+
+        expect(result.flags).toBeUndefined();
+    });
+
+    it('does NOT set ephemeral flag when allowEphemeral is false', () => {
+        const payload: MessagePayload = { text: 'secret', ephemeral: true };
+        const result = toDiscordPayload(payload, { allowEphemeral: false });
+
+        expect(result.flags).toBeUndefined();
+    });
+
+    it('does not set flags when ephemeral is false even with allowEphemeral', () => {
+        const payload: MessagePayload = { text: 'public', ephemeral: false };
+        const result = toDiscordPayload(payload, { allowEphemeral: true });
 
         expect(result.flags).toBeUndefined();
     });
@@ -393,5 +410,204 @@ describe('wrapDiscordMessage', () => {
         const callArg = (msg.reply as jest.Mock).mock.calls[0][0];
         expect(callArg.content).toBe('reply text');
         expect(result.id).toBe('reply-1');
+    });
+
+    it('reply() does NOT set ephemeral flag even when payload has ephemeral: true', async () => {
+        const msg = createMockMessage();
+        const wrapped = wrapDiscordMessage(msg as any);
+
+        await wrapped.reply({ text: 'ephemeral attempt', ephemeral: true });
+
+        const callArg = (msg.reply as jest.Mock).mock.calls[0][0];
+        expect(callArg.flags).toBeUndefined();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Interaction wrapper helpers
+// ---------------------------------------------------------------------------
+
+function createMockInteraction(overrides: Partial<Record<string, unknown>> = {}) {
+    return {
+        id: 'int-1',
+        customId: 'btn-action',
+        channelId: 'ch-99',
+        user: createMockUser(),
+        channel: {
+            id: 'ch-99',
+            name: 'test-channel',
+            send: jest.fn(),
+        },
+        message: { id: 'msg-orig' },
+        deferUpdate: jest.fn().mockResolvedValue(undefined),
+        deferReply: jest.fn().mockResolvedValue(undefined),
+        reply: jest.fn().mockResolvedValue(undefined),
+        update: jest.fn().mockResolvedValue(undefined),
+        editReply: jest.fn().mockResolvedValue(undefined),
+        followUp: jest.fn().mockResolvedValue({
+            id: 'followup-1',
+            channelId: 'ch-99',
+            edit: jest.fn(),
+            delete: jest.fn(),
+        }),
+        ...overrides,
+    };
+}
+
+// ---------------------------------------------------------------------------
+// wrapDiscordButton
+// ---------------------------------------------------------------------------
+
+describe('wrapDiscordButton', () => {
+    it('wraps button interaction with correct properties', () => {
+        const interaction = createMockInteraction();
+        const wrapped = wrapDiscordButton(interaction as any);
+
+        expect(wrapped.id).toBe('int-1');
+        expect(wrapped.platform).toBe('discord');
+        expect(wrapped.customId).toBe('btn-action');
+        expect(wrapped.channel.id).toBe('ch-99');
+        expect(wrapped.messageId).toBe('msg-orig');
+    });
+
+    it('uses fallback channel when interaction.channel is null', () => {
+        const interaction = createMockInteraction({ channel: null });
+        const wrapped = wrapDiscordButton(interaction as any);
+
+        expect(wrapped.channel.id).toBe('ch-99');
+        expect(wrapped.channel.platform).toBe('discord');
+        expect(wrapped.channel.name).toBeUndefined();
+    });
+
+    it('fallback channel send() throws with descriptive error', async () => {
+        const interaction = createMockInteraction({ channel: null });
+        const wrapped = wrapDiscordButton(interaction as any);
+
+        await expect(wrapped.channel.send({ text: 'test' })).rejects.toThrow(
+            'Cannot send to channel ch-99',
+        );
+    });
+
+    it('reply() passes ephemeral flag through for interaction responses', async () => {
+        const interaction = createMockInteraction();
+        const wrapped = wrapDiscordButton(interaction as any);
+
+        await wrapped.reply({ text: 'secret', ephemeral: true });
+
+        const callArg = (interaction.reply as jest.Mock).mock.calls[0][0];
+        expect(callArg.flags).toBe(MessageFlags.Ephemeral);
+    });
+
+    it('followUp() passes ephemeral flag through for interaction responses', async () => {
+        const interaction = createMockInteraction();
+        const wrapped = wrapDiscordButton(interaction as any);
+
+        await wrapped.followUp({ text: 'secret', ephemeral: true });
+
+        const callArg = (interaction.followUp as jest.Mock).mock.calls[0][0];
+        expect(callArg.flags).toBe(MessageFlags.Ephemeral);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// wrapDiscordSelect
+// ---------------------------------------------------------------------------
+
+describe('wrapDiscordSelect', () => {
+    it('wraps select interaction with correct properties', () => {
+        const interaction = createMockInteraction({
+            customId: 'select-action',
+            values: ['opt-a', 'opt-b'],
+        });
+        const wrapped = wrapDiscordSelect(interaction as any);
+
+        expect(wrapped.id).toBe('int-1');
+        expect(wrapped.platform).toBe('discord');
+        expect(wrapped.customId).toBe('select-action');
+        expect(wrapped.values).toEqual(['opt-a', 'opt-b']);
+        expect(wrapped.channel.id).toBe('ch-99');
+    });
+
+    it('uses fallback channel when interaction.channel is null', () => {
+        const interaction = createMockInteraction({
+            channel: null,
+            customId: 'select-action',
+            values: ['opt-a'],
+        });
+        const wrapped = wrapDiscordSelect(interaction as any);
+
+        expect(wrapped.channel.id).toBe('ch-99');
+        expect(wrapped.channel.name).toBeUndefined();
+    });
+
+    it('reply() passes ephemeral flag through for interaction responses', async () => {
+        const interaction = createMockInteraction({
+            customId: 'select-action',
+            values: ['opt-a'],
+        });
+        const wrapped = wrapDiscordSelect(interaction as any);
+
+        await wrapped.reply({ text: 'secret', ephemeral: true });
+
+        const callArg = (interaction.reply as jest.Mock).mock.calls[0][0];
+        expect(callArg.flags).toBe(MessageFlags.Ephemeral);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// wrapDiscordCommand
+// ---------------------------------------------------------------------------
+
+describe('wrapDiscordCommand', () => {
+    it('wraps command interaction with correct properties', () => {
+        const interaction = createMockInteraction({
+            commandName: 'test-cmd',
+            options: { data: [{ name: 'arg1', value: 'val1' }] },
+        });
+        const wrapped = wrapDiscordCommand(interaction as any);
+
+        expect(wrapped.id).toBe('int-1');
+        expect(wrapped.platform).toBe('discord');
+        expect(wrapped.commandName).toBe('test-cmd');
+        expect(wrapped.options.get('arg1')).toBe('val1');
+        expect(wrapped.channel.id).toBe('ch-99');
+    });
+
+    it('uses fallback channel when interaction.channel is null', () => {
+        const interaction = createMockInteraction({
+            channel: null,
+            commandName: 'test-cmd',
+            options: { data: [] },
+        });
+        const wrapped = wrapDiscordCommand(interaction as any);
+
+        expect(wrapped.channel.id).toBe('ch-99');
+        expect(wrapped.channel.name).toBeUndefined();
+    });
+
+    it('reply() passes ephemeral flag through for interaction responses', async () => {
+        const interaction = createMockInteraction({
+            commandName: 'test-cmd',
+            options: { data: [] },
+        });
+        const wrapped = wrapDiscordCommand(interaction as any);
+
+        await wrapped.reply({ text: 'secret', ephemeral: true });
+
+        const callArg = (interaction.reply as jest.Mock).mock.calls[0][0];
+        expect(callArg.flags).toBe(MessageFlags.Ephemeral);
+    });
+
+    it('editReply() passes ephemeral flag through for interaction responses', async () => {
+        const interaction = createMockInteraction({
+            commandName: 'test-cmd',
+            options: { data: [] },
+        });
+        const wrapped = wrapDiscordCommand(interaction as any);
+
+        await wrapped.editReply({ text: 'edited secret', ephemeral: true });
+
+        const callArg = (interaction.editReply as jest.Mock).mock.calls[0][0];
+        expect(callArg.flags).toBe(MessageFlags.Ephemeral);
     });
 });

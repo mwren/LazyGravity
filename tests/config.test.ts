@@ -125,6 +125,7 @@ describe('Config', () => {
         process.env.CLIENT_ID = 'client123';
         process.env.ALLOWED_USER_IDS = 'user1';
         process.env.PLATFORMS = 'discord,telegram';
+        process.env.TELEGRAM_BOT_TOKEN = 'tg_token';
 
         const config = loadConfig();
         expect(config.platforms).toEqual(['discord', 'telegram']);
@@ -135,6 +136,7 @@ describe('Config', () => {
         process.env.CLIENT_ID = 'client123';
         process.env.ALLOWED_USER_IDS = 'user1';
         process.env.PLATFORMS = 'discord,slack,telegram';
+        process.env.TELEGRAM_BOT_TOKEN = 'tg_token';
 
         const config = loadConfig();
         expect(config.platforms).toEqual(['discord', 'telegram']);
@@ -178,6 +180,18 @@ describe('Config', () => {
 
         const config = loadConfig();
         expect(config.telegramAllowedUserIds).toBeUndefined();
+    });
+
+    it('throws when platforms include telegram but TELEGRAM_BOT_TOKEN is missing', () => {
+        process.env.DISCORD_BOT_TOKEN = 'secret_token';
+        process.env.CLIENT_ID = 'client123';
+        process.env.ALLOWED_USER_IDS = 'user1';
+        process.env.PLATFORMS = 'discord,telegram';
+        delete process.env.TELEGRAM_BOT_TOKEN;
+
+        expect(() => loadConfig()).toThrow(
+            'TELEGRAM_BOT_TOKEN is required when platforms include "telegram"',
+        );
     });
 
     it('normalizes response delivery mode to stream even when set to final-only', () => {

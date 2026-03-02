@@ -24,6 +24,7 @@ function createMockApi(): TelegramBotLike['api'] {
         editMessageText: jest.fn().mockResolvedValue({ message_id: 999 }),
         deleteMessage: jest.fn().mockResolvedValue(true),
         getChat: jest.fn().mockResolvedValue({ id: 1, title: 'Test Chat' }),
+        answerCallbackQuery: jest.fn().mockResolvedValue(true),
     };
 }
 
@@ -395,6 +396,101 @@ describe('wrapTelegramCallbackQuery', () => {
         expect(sent.id).toBe('999');
         expect(sent.platform).toBe('telegram');
     });
+
+    it('deferUpdate() calls answerCallbackQuery', async () => {
+        const api = createMockApi();
+        const query: TelegramCallbackQueryLike = {
+            id: 'cb_defer',
+            from: createTelegramFrom(),
+            message: createTelegramMessage(),
+            data: 'action',
+        };
+        const interaction = wrapTelegramCallbackQuery(query, api);
+
+        await interaction.deferUpdate();
+
+        expect(api.answerCallbackQuery).toHaveBeenCalledWith('cb_defer');
+    });
+
+    it('reply() throws when chatId is 0 (synthetic)', async () => {
+        const api = createMockApi();
+        const query: TelegramCallbackQueryLike = {
+            id: 'cb_no_chat',
+            from: createTelegramFrom(),
+            data: 'action',
+        };
+        const interaction = wrapTelegramCallbackQuery(query, api);
+
+        await expect(interaction.reply({ text: 'Hi' })).rejects.toThrow(
+            'Cannot send message: callback query has no associated chat (chatId is 0)',
+        );
+    });
+
+    it('followUp() throws when chatId is 0 (synthetic)', async () => {
+        const api = createMockApi();
+        const query: TelegramCallbackQueryLike = {
+            id: 'cb_no_chat_2',
+            from: createTelegramFrom(),
+            data: 'action',
+        };
+        const interaction = wrapTelegramCallbackQuery(query, api);
+
+        await expect(interaction.followUp({ text: 'Hi' })).rejects.toThrow(
+            'Cannot send message: callback query has no associated chat (chatId is 0)',
+        );
+    });
+
+    it('deferUpdate() still works when chatId is 0 (no chat)', async () => {
+        const api = createMockApi();
+        const query: TelegramCallbackQueryLike = {
+            id: 'cb_defer_no_chat',
+            from: createTelegramFrom(),
+            data: 'action',
+        };
+        const interaction = wrapTelegramCallbackQuery(query, api);
+
+        // deferUpdate should work regardless of chatId
+        await expect(interaction.deferUpdate()).resolves.toBeUndefined();
+        expect(api.answerCallbackQuery).toHaveBeenCalledWith('cb_defer_no_chat');
+    });
+
+    it('update() throws when chatId is 0 and message exists with synthetic chat', async () => {
+        const api = createMockApi();
+        const query: TelegramCallbackQueryLike = {
+            id: 'cb_update_no_chat',
+            from: createTelegramFrom(),
+            message: {
+                message_id: 100,
+                chat: { id: 0, type: 'private' },
+                date: 1700000000,
+            },
+            data: 'action',
+        };
+        const interaction = wrapTelegramCallbackQuery(query, api);
+
+        await expect(interaction.update({ text: 'Update' })).rejects.toThrow(
+            'Cannot send message: callback query has no associated chat (chatId is 0)',
+        );
+    });
+
+    it('editReply() throws when chatId is 0 and message exists with synthetic chat', async () => {
+        const api = createMockApi();
+        const query: TelegramCallbackQueryLike = {
+            id: 'cb_editreply_no_chat',
+            from: createTelegramFrom(),
+            message: {
+                message_id: 100,
+                chat: { id: 0, type: 'private' },
+                date: 1700000000,
+            },
+            data: 'action',
+        };
+        const interaction = wrapTelegramCallbackQuery(query, api);
+
+        await expect(interaction.editReply({ text: 'Edit' })).rejects.toThrow(
+            'Cannot send message: callback query has no associated chat (chatId is 0)',
+        );
+    });
 });
 
 // ---------------------------------------------------------------------------
@@ -436,5 +532,37 @@ describe('wrapTelegramSentMessage', () => {
         await sent.delete();
 
         expect(api.deleteMessage).toHaveBeenCalledWith(555, 200);
+    });
+
+    it('passes string chatId directly without numeric coercion', async () => {
+        const api = createMockApi();
+        const largeChatId = '-1001234567890';
+        const sent = wrapTelegramSentMessage({ message_id: 300 }, api, largeChatId);
+
+        await sent.edit({ text: 'Edit' });
+        expect(api.editMessageText).toHaveBeenCalledWith(
+            largeChatId,
+            300,
+            'Edit',
+            expect.objectContaining({ parse_mode: 'HTML' }),
+        );
+
+        await sent.delete();
+        expect(api.deleteMessage).toHaveBeenCalledWith(largeChatId, 300);
+    });
+
+    it('passes numeric chatId directly without extra coercion', async () => {
+        const api = createMockApi();
+        const numericChatId = -1001234567890;
+        const sent = wrapTelegramSentMessage({ message_id: 400 }, api, numericChatId);
+
+        await sent.edit({ text: 'Test' });
+        // The original numeric chatId should be passed directly
+        expect(api.editMessageText).toHaveBeenCalledWith(
+            numericChatId,
+            400,
+            'Test',
+            expect.objectContaining({ parse_mode: 'HTML' }),
+        );
     });
 });

@@ -910,6 +910,9 @@ export const startBot = async (cliLogLevel?: LogLevel) => {
 
     const slashCommandHandler = new SlashCommandHandler(templateRepo);
 
+    // Discord platform — only initialise the Discord client when the platform is enabled
+    if (config.platforms.includes('discord')) {
+
     const client = new Client({
         intents: [
             GatewayIntentBits.Guilds,
@@ -1128,6 +1131,8 @@ export const startBot = async (cliLogLevel?: LogLevel) => {
 
     await client.login(config.discordToken);
 
+    } // end: Discord platform gate
+
     // Telegram platform (optional — requires grammy + TELEGRAM_BOT_TOKEN)
     if (config.platforms.includes('telegram') && config.telegramToken) {
         try {
@@ -1147,6 +1152,8 @@ export const startBot = async (cliLogLevel?: LogLevel) => {
             const allowedUsers = new Map<PlatformType, ReadonlySet<string>>();
             if (config.telegramAllowedUserIds && config.telegramAllowedUserIds.length > 0) {
                 allowedUsers.set('telegram', new Set(config.telegramAllowedUserIds));
+            } else {
+                logger.warn('Telegram platform enabled but TELEGRAM_ALLOWED_USER_IDS is empty — all users will be denied access.');
             }
 
             const eventRouter = new EventRouter(

@@ -134,6 +134,48 @@ describe('createPlatformButtonHandler', () => {
         await expect(handler(interaction)).resolves.toBeUndefined();
     });
 
+    it('catches match() errors and reports to user', async () => {
+        const errorSpy = jest.spyOn(logger, 'error').mockImplementation();
+        const action: ButtonAction = {
+            match: () => {
+                throw new Error('Regex compilation failed');
+            },
+            execute: jest.fn(),
+        };
+        const handler = createPlatformButtonHandler({ actions: [action] });
+        const interaction = makeButtonInteraction();
+
+        await handler(interaction);
+
+        expect(errorSpy).toHaveBeenCalledWith(
+            '[ButtonHandler] Match error:',
+            'Regex compilation failed',
+        );
+        expect(interaction.reply).toHaveBeenCalledWith({
+            text: 'An error occurred while processing the button action.',
+            ephemeral: true,
+        });
+        expect(action.execute).not.toHaveBeenCalled();
+        errorSpy.mockRestore();
+    });
+
+    it('does not throw when match error reply itself fails', async () => {
+        jest.spyOn(logger, 'error').mockImplementation();
+        const action: ButtonAction = {
+            match: () => {
+                throw new Error('Regex compilation failed');
+            },
+            execute: jest.fn(),
+        };
+        const handler = createPlatformButtonHandler({ actions: [action] });
+        const interaction = makeButtonInteraction({
+            reply: jest.fn().mockRejectedValue(new Error('Reply failed')),
+        });
+
+        await expect(handler(interaction)).resolves.toBeUndefined();
+        jest.restoreAllMocks();
+    });
+
     it('first matching action wins (order matters)', async () => {
         const firstExecute = jest.fn().mockResolvedValue(undefined);
         const secondExecute = jest.fn().mockResolvedValue(undefined);

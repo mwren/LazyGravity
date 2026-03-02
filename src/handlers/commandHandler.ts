@@ -49,7 +49,7 @@ export function createPlatformCommandHandler(deps: CommandHandlerDeps) {
             );
             await interaction.editReply({
                 text: `Unknown command: ${interaction.commandName}`,
-            });
+            }).catch(() => {});
             return;
         }
 

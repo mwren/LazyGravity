@@ -32,6 +32,7 @@ export interface TelegramBotLike {
         editMessageText(chatId: number | string, messageId: number, text: string, options?: any): Promise<any>;
         deleteMessage(chatId: number | string, messageId: number): Promise<any>;
         getChat(chatId: number | string): Promise<any>;
+        answerCallbackQuery(callbackQueryId: string, options?: any): Promise<any>;
     };
 }
 
@@ -238,6 +239,19 @@ export function wrapTelegramMessage(
     };
 }
 
+/**
+ * Validate that a chatId is usable for sending messages.
+ * Throws a descriptive error if the chatId is synthetic (0).
+ */
+function assertValidChatId(chatId: number | string): void {
+    if (chatId === 0 || chatId === '0') {
+        throw new Error(
+            'Cannot send message: callback query has no associated chat (chatId is 0). ' +
+            'Use answerCallbackQuery instead.',
+        );
+    }
+}
+
 /** Wrap a Telegram callback query as a PlatformButtonInteraction. */
 export function wrapTelegramCallbackQuery(
     query: TelegramCallbackQueryLike,
@@ -247,6 +261,7 @@ export function wrapTelegramCallbackQuery(
     const chatId = query.message?.chat.id ?? 0;
     const channel = wrapTelegramChannel(api, chatId);
     const messageId = query.message ? String(query.message.message_id) : '0';
+    const callbackQueryId = query.id;
 
     return {
         id: query.id,
@@ -256,26 +271,31 @@ export function wrapTelegramCallbackQuery(
         channel,
         messageId,
         async deferUpdate(): Promise<void> {
-            // No-op for Telegram; callback queries don't need explicit defer
+            // Acknowledge the callback query to dismiss the loading indicator
+            await api.answerCallbackQuery(callbackQueryId);
         },
         async reply(payload: MessagePayload): Promise<void> {
+            assertValidChatId(chatId);
             const opts = toTelegramPayload(payload);
             const { text, ...rest } = opts;
             await api.sendMessage(chatId, text, rest);
         },
         async update(payload: MessagePayload): Promise<void> {
             if (!query.message) return;
+            assertValidChatId(chatId);
             const opts = toTelegramPayload(payload);
             const { text, ...rest } = opts;
             await api.editMessageText(chatId, query.message.message_id, text, rest);
         },
         async editReply(payload: MessagePayload): Promise<void> {
             if (!query.message) return;
+            assertValidChatId(chatId);
             const opts = toTelegramPayload(payload);
             const { text, ...rest } = opts;
             await api.editMessageText(chatId, query.message.message_id, text, rest);
         },
         async followUp(payload: MessagePayload): Promise<PlatformSentMessage> {
+            assertValidChatId(chatId);
             const opts = toTelegramPayload(payload);
             const { text, ...rest } = opts;
             const sent = await api.sendMessage(chatId, text, rest);
@@ -295,7 +315,6 @@ export function wrapTelegramSentMessage(
     chatId: number | string,
 ): PlatformSentMessage {
     const msgId = String(msg.message_id ?? msg.id ?? '0');
-    const chatIdNum = typeof chatId === 'number' ? chatId : Number(chatId);
 
     return {
         id: msgId,
@@ -304,11 +323,11 @@ export function wrapTelegramSentMessage(
         async edit(payload: MessagePayload): Promise<PlatformSentMessage> {
             const opts = toTelegramPayload(payload);
             const { text, ...rest } = opts;
-            const edited = await api.editMessageText(chatIdNum, Number(msgId), text, rest);
+            const edited = await api.editMessageText(chatId, Number(msgId), text, rest);
             return wrapTelegramSentMessage(edited, api, chatId);
         },
         async delete(): Promise<void> {
-            await api.deleteMessage(chatIdNum, Number(msgId));
+            await api.deleteMessage(chatId, Number(msgId));
         },
     };
 }

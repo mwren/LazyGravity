@@ -51,12 +51,27 @@ export function createPlatformMessageHandler(deps: MessageHandlerDeps) {
             const commandName = parts[0]?.toLowerCase();
             const args = parts.slice(1);
             if (commandName && deps.handleTextCommand) {
-                const handled = await deps.handleTextCommand(
-                    message,
-                    commandName,
-                    args,
-                );
-                if (handled) return;
+                try {
+                    const handled = await deps.handleTextCommand(
+                        message,
+                        commandName,
+                        args,
+                    );
+                    if (handled) return;
+                } catch (err: unknown) {
+                    const errorMessage =
+                        err instanceof Error ? err.message : String(err);
+                    logger.error(
+                        '[MessageHandler] Text command error:',
+                        errorMessage,
+                    );
+                    await message
+                        .reply({
+                            text: 'An error occurred while processing the command.',
+                        })
+                        .catch(() => {});
+                    return;
+                }
             }
         }
 
@@ -83,7 +98,7 @@ export function createPlatformMessageHandler(deps: MessageHandlerDeps) {
                 errorMessage,
             );
             await message
-                .reply({ text: `Failed to process message: ${errorMessage}` })
+                .reply({ text: 'An error occurred while processing your message.' })
                 .catch(() => {});
         }
     };

@@ -8,6 +8,7 @@ import type {
     PlatformChannel,
     PlatformSentMessage,
 } from '../../src/platform/types';
+import { logger } from '../../src/utils/logger';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -145,6 +146,44 @@ describe('createPlatformMessageHandler', () => {
         );
     });
 
+    it('catches handleTextCommand errors and reports generic message to user', async () => {
+        const errorSpy = jest.spyOn(logger, 'error').mockImplementation();
+        const handleTextCommand = jest
+            .fn()
+            .mockRejectedValue(new Error('DB connection lost'));
+        const deps = makeDeps({ handleTextCommand });
+        const handler = createPlatformMessageHandler(deps);
+        const message = makeMessage({ content: '!screenshot full' });
+
+        await handler(message);
+
+        expect(errorSpy).toHaveBeenCalledWith(
+            '[MessageHandler] Text command error:',
+            'DB connection lost',
+        );
+        expect(message.reply).toHaveBeenCalledWith({
+            text: 'An error occurred while processing the command.',
+        });
+        expect(deps.sendPrompt).not.toHaveBeenCalled();
+        errorSpy.mockRestore();
+    });
+
+    it('does not throw when handleTextCommand error reply itself fails', async () => {
+        jest.spyOn(logger, 'error').mockImplementation();
+        const handleTextCommand = jest
+            .fn()
+            .mockRejectedValue(new Error('DB connection lost'));
+        const deps = makeDeps({ handleTextCommand });
+        const handler = createPlatformMessageHandler(deps);
+        const message = makeMessage({
+            content: '!screenshot full',
+            reply: jest.fn().mockRejectedValue(new Error('Reply failed')),
+        });
+
+        await expect(handler(message)).resolves.toBeUndefined();
+        jest.restoreAllMocks();
+    });
+
     it('routes messages with content to sendPrompt with correct workspace', async () => {
         const deps = makeDeps({
             getWorkspaceForChannel: jest
@@ -214,7 +253,7 @@ describe('createPlatformMessageHandler', () => {
         await handler(message);
 
         expect(message.reply).toHaveBeenCalledWith({
-            text: 'Failed to process message: CDP connection lost',
+            text: 'An error occurred while processing your message.',
         });
     });
 

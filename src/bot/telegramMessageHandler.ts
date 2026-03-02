@@ -99,10 +99,6 @@ export function createTelegramMessageHandler(deps: TelegramMessageHandlerDeps) {
             const channel = message.channel;
             await new Promise<void>((resolve) => {
                 const TIMEOUT_MS = 300_000;
-                const safetyTimer = setTimeout(() => {
-                    logger.warn(`[TelegramHandler:${projectName}] Safety timeout — releasing queue after 300s`);
-                    resolve();
-                }, TIMEOUT_MS);
 
                 let settled = false;
                 const settle = () => {
@@ -140,6 +136,12 @@ export function createTelegramMessageHandler(deps: TelegramMessageHandlerDeps) {
                         }
                     },
                 });
+
+                const safetyTimer = setTimeout(() => {
+                    logger.warn(`[TelegramHandler:${projectName}] Safety timeout — releasing queue after 300s`);
+                    monitor.stop().catch(() => {});
+                    settle();
+                }, TIMEOUT_MS);
 
                 monitor.start().catch((err: any) => {
                     logger.error(`[TelegramHandler:${projectName}] monitor.start() failed:`, err?.message || err);

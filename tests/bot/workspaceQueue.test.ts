@@ -154,6 +154,28 @@ describe('WorkspaceQueue', () => {
 
             expect(queue.getDepth('/ws/a')).toBe(0);
         });
+
+        it('cleans up Map entries when depth reaches 0 to prevent memory leaks', () => {
+            queue.incrementDepth('/ws/a');
+            queue.incrementDepth('/ws/a');
+
+            // Also enqueue a task to populate the queues Map
+            queue.enqueue('/ws/a', async () => {});
+
+            queue.decrementDepth('/ws/a');
+            // Depth is 1 — entries should still exist
+            expect(queue.getDepth('/ws/a')).toBe(1);
+
+            queue.decrementDepth('/ws/a');
+            // Depth is 0 — both Maps should have the entry removed
+            expect(queue.getDepth('/ws/a')).toBe(0);
+
+            // Verify that a new enqueue still works after cleanup
+            const executed: number[] = [];
+            queue.enqueue('/ws/a', async () => {
+                executed.push(1);
+            });
+        });
     });
 });
 

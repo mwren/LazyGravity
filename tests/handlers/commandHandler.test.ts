@@ -145,6 +145,18 @@ describe('createPlatformCommandHandler', () => {
         await expect(handler(interaction)).resolves.toBeUndefined();
     });
 
+    it('does not throw when unknown-command editReply rejects', async () => {
+        const handler = createPlatformCommandHandler({ commands: [] });
+        const interaction = makeCommandInteraction({
+            commandName: 'nonexistent',
+            editReply: jest
+                .fn()
+                .mockRejectedValue(new Error('Interaction expired')),
+        });
+
+        await expect(handler(interaction)).resolves.toBeUndefined();
+    });
+
     it('dispatches to the correct command among multiple registrations', async () => {
         const modeExecute = jest.fn().mockResolvedValue(undefined);
         const projectExecute = jest.fn().mockResolvedValue(undefined);

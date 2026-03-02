@@ -42,7 +42,24 @@ export interface ButtonHandlerDeps {
 export function createPlatformButtonHandler(deps: ButtonHandlerDeps) {
     return async (interaction: PlatformButtonInteraction): Promise<void> => {
         for (const action of deps.actions) {
-            const params = action.match(interaction.customId);
+            let params: Record<string, string> | null;
+            try {
+                params = action.match(interaction.customId);
+            } catch (err: unknown) {
+                const errorMessage =
+                    err instanceof Error ? err.message : String(err);
+                logger.error(
+                    '[ButtonHandler] Match error:',
+                    errorMessage,
+                );
+                await interaction
+                    .reply({
+                        text: 'An error occurred while processing the button action.',
+                        ephemeral: true,
+                    })
+                    .catch(() => {});
+                return;
+            }
             if (params !== null) {
                 try {
                     await action.execute(interaction, params);

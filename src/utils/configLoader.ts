@@ -112,6 +112,12 @@ function mergeConfig(persisted: PersistedConfig): AppConfig {
         persisted.platforms,
     );
 
+    if (platforms.includes('telegram') && !telegramToken) {
+        throw new Error(
+            'TELEGRAM_BOT_TOKEN is required when platforms include "telegram"',
+        );
+    }
+
     return {
         discordToken: token,
         clientId,
@@ -191,7 +197,10 @@ function resolvePlatforms(
         if (parsed.length > 0) return parsed;
     }
     if (persistedValue && persistedValue.length > 0) {
-        return [...persistedValue];
+        const validated = persistedValue.filter(
+            (p): p is PlatformType => VALID_PLATFORMS.includes(p as PlatformType),
+        );
+        if (validated.length > 0) return validated;
     }
     return ['discord'];
 }
