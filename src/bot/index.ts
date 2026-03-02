@@ -913,6 +913,9 @@ export const startBot = async (cliLogLevel?: LogLevel) => {
     // Discord platform — only initialise the Discord client when the platform is enabled
     if (config.platforms.includes('discord')) {
 
+    const discordToken = config.discordToken!;
+    const discordClientId = config.clientId!;
+
     const client = new Client({
         intents: [
             GatewayIntentBits.Guilds,
@@ -927,7 +930,7 @@ export const startBot = async (cliLogLevel?: LogLevel) => {
         logger.info(`Ready! Logged in as ${readyClient.user.tag} | extractionMode=${config.extractionMode}`);
 
         try {
-            await registerSlashCommands(config.discordToken, config.clientId, config.guildId);
+            await registerSlashCommands(discordToken, discordClientId, config.guildId);
         } catch (error) {
             logger.warn('Failed to register slash commands, but text commands remain available.');
         }
@@ -1129,7 +1132,7 @@ export const startBot = async (cliLogLevel?: LogLevel) => {
         userPrefRepo,
     }));
 
-    await client.login(config.discordToken);
+    await client.login(discordToken);
 
     } // end: Discord platform gate
 

@@ -40,7 +40,7 @@ export function addField(
 
 /** Replace all fields at once. */
 export function withFields(rc: RichContent, fields: readonly RichContentField[]): RichContent {
-    return { ...rc, fields: [...fields] };
+    return { ...rc, fields: fields.map((field) => ({ ...field })) };
 }
 
 /** Set the footer text. */

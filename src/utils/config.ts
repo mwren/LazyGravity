@@ -5,8 +5,10 @@ import type { PlatformType } from '../platform/types';
 export type ExtractionMode = 'legacy' | 'structured';
 
 export interface AppConfig {
-    discordToken: string;
-    clientId: string;
+    /** Discord Bot Token (optional — only required when 'discord' is in platforms). */
+    discordToken?: string;
+    /** Discord Application Client ID (optional — only required when 'discord' is in platforms). */
+    clientId?: string;
     guildId?: string;
     allowedUserIds: string[];
     workspaceBaseDir: string;

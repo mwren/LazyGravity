@@ -66,19 +66,32 @@ function readPersistedConfig(filePath: string): PersistedConfig {
  * Returns a fresh AppConfig object (immutable pattern).
  */
 function mergeConfig(persisted: PersistedConfig): AppConfig {
-    const token = process.env.DISCORD_BOT_TOKEN ?? persisted.discordToken;
-    if (!token) {
-        throw new Error('Missing required environment variable: DISCORD_BOT_TOKEN');
-    }
+    // Resolve platforms FIRST so we only validate credentials for enabled platforms
+    const platforms = resolvePlatforms(
+        process.env.PLATFORMS,
+        persisted.platforms,
+    );
 
-    const clientId = process.env.CLIENT_ID ?? persisted.clientId;
-    if (!clientId) {
-        throw new Error('Missing required environment variable: CLIENT_ID');
-    }
+    // Discord credentials — only required when Discord is an active platform
+    let discordToken: string | undefined;
+    let clientId: string | undefined;
+    let allowedUserIds: string[] = [];
 
-    const allowedUserIds = resolveAllowedUserIds(persisted);
-    if (allowedUserIds.length === 0) {
-        throw new Error('Missing required environment variable: ALLOWED_USER_IDS');
+    if (platforms.includes('discord')) {
+        discordToken = process.env.DISCORD_BOT_TOKEN ?? persisted.discordToken;
+        if (!discordToken) {
+            throw new Error('Missing required environment variable: DISCORD_BOT_TOKEN');
+        }
+
+        clientId = process.env.CLIENT_ID ?? persisted.clientId;
+        if (!clientId) {
+            throw new Error('Missing required environment variable: CLIENT_ID');
+        }
+
+        allowedUserIds = resolveAllowedUserIds(persisted);
+        if (allowedUserIds.length === 0) {
+            throw new Error('Missing required environment variable: ALLOWED_USER_IDS');
+        }
     }
 
     const defaultDir = path.join(os.homedir(), 'Code');
@@ -103,14 +116,9 @@ function mergeConfig(persisted: PersistedConfig): AppConfig {
         persisted.extractionMode,
     );
 
+    // Telegram credentials — only required when Telegram is an active platform
     const telegramToken = process.env.TELEGRAM_BOT_TOKEN ?? persisted.telegramToken ?? undefined;
-
     const telegramAllowedUserIds = resolveTelegramAllowedUserIds(persisted);
-
-    const platforms = resolvePlatforms(
-        process.env.PLATFORMS,
-        persisted.platforms,
-    );
 
     if (platforms.includes('telegram') && !telegramToken) {
         throw new Error(
@@ -119,7 +127,7 @@ function mergeConfig(persisted: PersistedConfig): AppConfig {
     }
 
     return {
-        discordToken: token,
+        discordToken,
         clientId,
         guildId,
         allowedUserIds,

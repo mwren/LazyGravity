@@ -42,23 +42,24 @@ export interface SelectHandlerDeps {
 export function createPlatformSelectHandler(deps: SelectHandlerDeps) {
     return async (interaction: PlatformSelectInteraction): Promise<void> => {
         for (const action of deps.actions) {
-            if (action.match(interaction.customId)) {
-                try {
-                    await action.execute(interaction, interaction.values);
-                } catch (err: unknown) {
-                    const errorMessage =
-                        err instanceof Error ? err.message : String(err);
-                    logger.error(
-                        '[SelectHandler] Action error:',
-                        errorMessage,
-                    );
-                    await interaction
-                        .reply({
-                            text: 'An error occurred while processing the selection.',
-                            ephemeral: true,
-                        })
-                        .catch(() => {});
-                }
+            try {
+                if (!action.match(interaction.customId)) continue;
+
+                await action.execute(interaction, interaction.values);
+                return;
+            } catch (err: unknown) {
+                const errorMessage =
+                    err instanceof Error ? err.message : String(err);
+                logger.error(
+                    '[SelectHandler] Action error:',
+                    errorMessage,
+                );
+                await interaction
+                    .reply({
+                        text: 'An error occurred while processing the selection.',
+                        ephemeral: true,
+                    })
+                    .catch(() => {});
                 return;
             }
         }

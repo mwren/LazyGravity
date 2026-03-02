@@ -130,6 +130,25 @@ describe('createPlatformSelectHandler', () => {
         await expect(handler(interaction)).resolves.toBeUndefined();
     });
 
+    it('catches match() errors and reports to user', async () => {
+        const action: SelectAction = {
+            match: () => {
+                throw new Error('Bad regex');
+            },
+            execute: jest.fn(),
+        };
+        const handler = createPlatformSelectHandler({ actions: [action] });
+        const interaction = makeSelectInteraction();
+
+        await handler(interaction);
+
+        expect(interaction.reply).toHaveBeenCalledWith({
+            text: 'An error occurred while processing the selection.',
+            ephemeral: true,
+        });
+        expect(action.execute).not.toHaveBeenCalled();
+    });
+
     it('first matching action wins (order matters)', async () => {
         const firstExecute = jest.fn().mockResolvedValue(undefined);
         const secondExecute = jest.fn().mockResolvedValue(undefined);

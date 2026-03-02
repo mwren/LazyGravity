@@ -182,6 +182,20 @@ describe('Config', () => {
         expect(config.telegramAllowedUserIds).toBeUndefined();
     });
 
+    it('allows Telegram-only deployment without Discord credentials', () => {
+        delete process.env.DISCORD_BOT_TOKEN;
+        delete process.env.CLIENT_ID;
+        delete process.env.ALLOWED_USER_IDS;
+        process.env.PLATFORMS = 'telegram';
+        process.env.TELEGRAM_BOT_TOKEN = 'tg_token';
+
+        const config = loadConfig();
+        expect(config.platforms).toEqual(['telegram']);
+        expect(config.discordToken).toBeUndefined();
+        expect(config.clientId).toBeUndefined();
+        expect(config.telegramToken).toBe('tg_token');
+    });
+
     it('throws when platforms include telegram but TELEGRAM_BOT_TOKEN is missing', () => {
         process.env.DISCORD_BOT_TOKEN = 'secret_token';
         process.env.CLIENT_ID = 'client123';
