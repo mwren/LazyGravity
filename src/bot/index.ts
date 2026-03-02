@@ -85,7 +85,8 @@ import { formatAsPlainText, splitPlainText } from '../utils/plainTextFormatter';
 import { createInteractionCreateHandler } from '../events/interactionCreateHandler';
 import { createMessageCreateHandler } from '../events/messageCreateHandler';
 
-// Telegram platform support (optional — grammy dynamically imported at runtime)
+// Telegram platform support
+import { Bot } from 'grammy';
 import { TelegramAdapter } from '../platform/telegram/telegramAdapter';
 import { TelegramBindingRepository } from '../database/telegramBindingRepository';
 import { createTelegramMessageHandler } from './telegramMessageHandler';
@@ -1136,11 +1137,9 @@ export const startBot = async (cliLogLevel?: LogLevel) => {
 
     } // end: Discord platform gate
 
-    // Telegram platform (optional — requires grammy + TELEGRAM_BOT_TOKEN)
+    // Telegram platform
     if (config.platforms.includes('telegram') && config.telegramToken) {
         try {
-            // @ts-expect-error grammy is an optional peer dependency
-            const { Bot } = await import('grammy');
             const telegramBot = new Bot(config.telegramToken);
             const botInfo = await telegramBot.api.getMe();
 
@@ -1167,12 +1166,9 @@ export const startBot = async (cliLogLevel?: LogLevel) => {
             await eventRouter.startAll();
 
             logger.info(`Telegram bot started: @${botInfo.username} (${config.telegramAllowedUserIds?.length ?? 0} allowed users)`);
-        } catch (e: any) {
-            if (e.code === 'ERR_MODULE_NOT_FOUND' || e.code === 'MODULE_NOT_FOUND') {
-                logger.warn('Telegram platform requested but grammy is not installed. Run: npm install grammy');
-            } else {
-                logger.error('Failed to start Telegram adapter:', e.message || e);
-            }
+        } catch (e: unknown) {
+            const message = e instanceof Error ? e.message : String(e);
+            logger.error('Failed to start Telegram adapter:', message);
         }
     }
 };

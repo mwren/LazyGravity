@@ -157,6 +157,7 @@ describe('Config', () => {
         process.env.CLIENT_ID = 'client123';
         process.env.ALLOWED_USER_IDS = 'user1';
         delete process.env.TELEGRAM_BOT_TOKEN;
+        delete process.env.PLATFORMS;
 
         const config = loadConfig();
         expect(config.telegramToken).toBeUndefined();
