@@ -7,10 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-03-03
+
 ### Added
 
-- Telegram `/template_add`, `/template_delete`, and `/project_create` commands
-- Telegram Commands section in README
+- **Multi-platform support**: Platform abstraction layer for Discord + Telegram ([#67](https://github.com/tokyoweb3/LazyGravity/pull/67))
+- **Telegram bot integration**: Full Telegram support with grammy — send prompts, receive responses, inline keyboard buttons
+- Telegram commands: `/project`, `/project_create`, `/template`, `/template_add`, `/template_delete`, `/mode`, `/model`, `/screenshot`, `/autoaccept`, `/logs`, `/stop`, `/status`, `/ping`, `/help`
+- Platform-agnostic handler factories for message, button, select, and command events
+- `EventRouter` with per-platform authorization and event dispatch
+- `WorkspaceQueue` for per-workspace task serialization across platforms
+- `TelegramBindingRepository` for Telegram chat-to-workspace bindings (SQLite)
+- Platform-agnostic notification/UI payload builders (approval, planning, error, status, progress)
+- `PlatformAdapter` interface with Discord and Telegram implementations
+- `RichContentBuilder` for immutable rich content construction
+- `TelegramFormatter` for Markdown-to-Telegram HTML conversion
+- Telegram photo message support with automatic image forwarding
+- Default model pre-selection with DB persistence
+- Interactive arrow-key setup wizard with platform toggle
+- `PLATFORMS` environment variable to select active platforms (`discord`, `telegram`, or both)
+- Test suite expanded from 690+ to 1270+ tests
+
+### Fixed
+
+- Credential validation for Discord token/clientId with explicit error logging
+- `doctor` command now validates `PLATFORMS` values against known platforms
+- i18n keys in session picker use proper variable interpolation
+- Discord component row validation (prevents mixing buttons and select menus)
+- `WorkspaceQueue` memory cleanup via `.finally()` on completed chains
+
+### Changed
+
+- `description` in package.json updated to reflect multi-platform support
 
 ## [0.2.0] - 2026-03-02
 
@@ -64,6 +92,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CLI entry point (`lazy-gravity` command) with setup wizard and doctor command
 - Comprehensive test suite (390+ tests)
 
-[Unreleased]: https://github.com/tokyoweb3/LazyGravity/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/tokyoweb3/LazyGravity/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/tokyoweb3/LazyGravity/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/tokyoweb3/LazyGravity/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/tokyoweb3/LazyGravity/releases/tag/v0.1.0
