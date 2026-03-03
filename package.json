@@ -1,6 +1,6 @@
 {
   "name": "lazy-gravity",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Control Antigravity from anywhere — a local, secure bot (Discord + Telegram) that lets you remotely operate Antigravity on your home PC from your smartphone.",
   "main": "dist/index.js",
   "bin": {
