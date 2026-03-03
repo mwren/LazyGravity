@@ -12,6 +12,7 @@ jest.mock('../../src/utils/logger', () => ({
         debug: jest.fn(),
         phase: jest.fn(),
         done: jest.fn(),
+        prompt: jest.fn(),
         divider: jest.fn(),
     },
 }));
@@ -21,6 +22,7 @@ jest.mock('../../src/services/cdpBridgeManager', () => ({
     ensureApprovalDetector: jest.fn(),
     ensureErrorPopupDetector: jest.fn(),
     ensurePlanningDetector: jest.fn(),
+    getCurrentCdp: jest.fn().mockReturnValue(null),
 }));
 
 jest.mock('../../src/services/responseMonitor', () => ({
@@ -101,6 +103,7 @@ function createMockPool(cdp = createMockCdp()) {
     return {
         getOrConnect: jest.fn().mockResolvedValue(cdp),
         extractProjectName: jest.fn().mockReturnValue('test-project'),
+        getActiveWorkspaceNames: jest.fn().mockReturnValue([]),
     };
 }
 
@@ -527,5 +530,44 @@ describe('createTelegramMessageHandler', () => {
         expect(message.reply).toHaveBeenCalledWith({
             text: 'No project is linked to this chat. Use /project to bind a workspace.',
         });
+    });
+
+    it.each(['/help', '/status', '/stop', '/ping', '/start'])(
+        'intercepts %s command and does not reach CDP path',
+        async (cmd) => {
+            const mockCdp = createMockCdp();
+            const pool = createMockPool(mockCdp);
+            const bridge = createBridge(pool);
+            const telegramBindingRepo = createTelegramBindingRepo({
+                chatId: 'chat-123',
+                workspacePath: '/workspace/a',
+            });
+            const { message } = createMockMessage({ content: cmd });
+
+            const handler = createTelegramMessageHandler({ bridge, telegramBindingRepo });
+            await handler(message as any);
+
+            // Built-in commands should NOT reach CDP
+            expect(pool.getOrConnect).not.toHaveBeenCalled();
+            expect(mockCdp.injectMessage).not.toHaveBeenCalled();
+            // Should reply with command-specific text
+            expect(message.reply).toHaveBeenCalled();
+        },
+    );
+
+    it('forwards unknown slash commands to Antigravity as normal messages', async () => {
+        const mockCdp = createMockCdp();
+        const pool = createMockPool(mockCdp);
+        const bridge = createBridge(pool);
+        const binding = { chatId: 'chat-123', workspacePath: '/workspace/a' };
+        const telegramBindingRepo = createTelegramBindingRepo(binding);
+        const { message } = createMockMessage({ content: '/unknown_command' });
+
+        const handler = createTelegramMessageHandler({ bridge, telegramBindingRepo });
+        await handler(message as any);
+
+        // Unknown commands should be forwarded to Antigravity via CDP
+        expect(pool.getOrConnect).toHaveBeenCalled();
+        expect(mockCdp.injectMessage).toHaveBeenCalledWith('/unknown_command');
     });
 });

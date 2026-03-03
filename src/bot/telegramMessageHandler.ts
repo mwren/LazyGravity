@@ -18,12 +18,15 @@ import { ResponseMonitor } from '../services/responseMonitor';
 import { ProcessLogBuffer } from '../utils/processLogBuffer';
 import { splitOutputAndLogs } from '../utils/discordFormatter';
 import { parseTelegramProjectCommand, handleTelegramProjectCommand } from './telegramProjectCommand';
+import { parseTelegramCommand, handleTelegramCommand } from './telegramCommands';
+import type { ModeService } from '../services/modeService';
 import { logger } from '../utils/logger';
 
 export interface TelegramMessageHandlerDeps {
     readonly bridge: CdpBridge;
     readonly telegramBindingRepo: TelegramBindingRepository;
     readonly workspaceService?: WorkspaceService;
+    readonly modeService?: ModeService;
 }
 
 /**
@@ -59,6 +62,17 @@ export function createTelegramMessageHandler(deps: TelegramMessageHandlerDeps) {
 
         logger.debug(`[TelegramHandler] handler entered (chat=${chatId}, msgTime=${message.createdAt.toISOString()}, handlerDelay=${handlerEntryTime - message.createdAt.getTime()}ms)`);
 
+        // Intercept built-in commands (/help, /status, /stop, /ping, /start)
+        const cmd = parseTelegramCommand(promptText);
+        if (cmd) {
+            await handleTelegramCommand(
+                { bridge: deps.bridge, modeService: deps.modeService },
+                message,
+                cmd,
+            );
+            return;
+        }
+
         // Intercept /project command before CDP path
         if (deps.workspaceService) {
             const parsed = parseTelegramProjectCommand(promptText);
@@ -81,7 +95,12 @@ export function createTelegramMessageHandler(deps: TelegramMessageHandlerDeps) {
             return;
         }
 
-        const workspacePath = binding.workspacePath;
+        // Resolve relative workspace name to absolute path (mirrors Discord handler behavior).
+        // Without this, CDP receives a bare name like "DemoLG" and Antigravity
+        // falls back to its default scratch directory.
+        const workspacePath = deps.workspaceService
+            ? deps.workspaceService.getWorkspacePath(binding.workspacePath)
+            : binding.workspacePath;
 
         await enqueueForWorkspace(workspacePath, async () => {
             const cdpStartTime = Date.now();
@@ -111,7 +130,7 @@ export function createTelegramMessageHandler(deps: TelegramMessageHandlerDeps) {
             await message.react('\u{1F440}').catch(() => {});
 
             // Inject prompt into Antigravity
-            logger.debug(`[Prompt] ${promptText}`);
+            logger.prompt(promptText);
             const injectResult = await cdp.injectMessage(promptText);
             if (!injectResult.ok) {
                 await message.reply({

@@ -543,7 +543,7 @@ async function sendPromptToAntigravity(
 
     try {
 
-        logger.debug(`[Prompt] ${prompt}`);
+        logger.prompt(prompt);
 
         let injectResult;
         if (inboundImages.length > 0) {
@@ -1157,6 +1157,7 @@ export const startBot = async (cliLogLevel?: LogLevel) => {
                 bridge,
                 telegramBindingRepo,
                 workspaceService,
+                modeService,
             });
 
             const telegramSelectHandler = createTelegramSelectHandler({
@@ -1189,7 +1190,12 @@ export const startBot = async (cliLogLevel?: LogLevel) => {
             );
             // Register bot commands BEFORE starting polling so Telegram shows "/" suggestions
             await telegramBot.api.setMyCommands([
+                { command: 'start', description: 'Welcome message' },
                 { command: 'project', description: 'Manage workspace bindings' },
+                { command: 'status', description: 'Show bot status and connections' },
+                { command: 'stop', description: 'Interrupt active LLM generation' },
+                { command: 'help', description: 'Show available commands' },
+                { command: 'ping', description: 'Check bot latency' },
             ]).catch((e: unknown) => {
                 logger.warn('Failed to register Telegram commands:', e instanceof Error ? e.message : e);
             });
