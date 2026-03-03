@@ -37,6 +37,9 @@ export function createPlanningButtonAction(
         ): Promise<void> {
             const { action, channelId } = params;
 
+            // Acknowledge immediately so Telegram doesn't time out
+            await interaction.deferUpdate().catch(() => {});
+
             if (channelId && channelId !== interaction.channel.id) {
                 await interaction
                     .reply({ text: 'This planning action is linked to a different session channel.' })
@@ -57,7 +60,6 @@ export function createPlanningButtonAction(
             }
 
             if (action === 'open') {
-                await interaction.deferUpdate().catch(() => {});
 
                 const clicked = await detector.clickOpenButton();
                 if (!clicked) {
@@ -103,7 +105,17 @@ export function createPlanningButtonAction(
                 }
             } else {
                 // Proceed action
-                const clicked = await detector.clickProceedButton();
+                await interaction.deferUpdate().catch(() => {});
+
+                let clicked = false;
+                try {
+                    clicked = await detector.clickProceedButton();
+                } catch (err: unknown) {
+                    const msg = err instanceof Error ? err.message : String(err);
+                    logger.error(`[PlanningAction] CDP click failed: ${msg}`);
+                    await interaction.reply({ text: `Proceed failed: ${msg}` }).catch(() => {});
+                    return;
+                }
 
                 if (clicked) {
                     await interaction

@@ -29,6 +29,8 @@ export interface TelegramMessageHandlerDeps {
     readonly workspaceService?: WorkspaceService;
     readonly modeService?: ModeService;
     readonly extractionMode?: ExtractionMode;
+    readonly templateRepo?: import('../database/templateRepository').TemplateRepository;
+    readonly fetchQuota?: () => Promise<any[]>;
 }
 
 /**
@@ -68,7 +70,13 @@ export function createTelegramMessageHandler(deps: TelegramMessageHandlerDeps) {
         const cmd = parseTelegramCommand(promptText);
         if (cmd) {
             await handleTelegramCommand(
-                { bridge: deps.bridge, modeService: deps.modeService, telegramBindingRepo: deps.telegramBindingRepo },
+                {
+                    bridge: deps.bridge,
+                    modeService: deps.modeService,
+                    telegramBindingRepo: deps.telegramBindingRepo,
+                    templateRepo: deps.templateRepo,
+                    fetchQuota: deps.fetchQuota,
+                },
                 message,
                 cmd,
             );

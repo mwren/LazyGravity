@@ -94,9 +94,14 @@ import { createTelegramMessageHandler } from './telegramMessageHandler';
 import { createTelegramSelectHandler } from './telegramProjectCommand';
 import { EventRouter } from './eventRouter';
 import { createPlatformButtonHandler } from '../handlers/buttonHandler';
+import { createPlatformSelectHandler } from '../handlers/selectHandler';
 import { createApprovalButtonAction } from '../handlers/approvalButtonAction';
 import { createPlanningButtonAction } from '../handlers/planningButtonAction';
 import { createErrorPopupButtonAction } from '../handlers/errorPopupButtonAction';
+import { createModelButtonAction } from '../handlers/modelButtonAction';
+import { createAutoAcceptButtonAction } from '../handlers/autoAcceptButtonAction';
+import { createTemplateButtonAction } from '../handlers/templateButtonAction';
+import { createModeSelectAction } from '../handlers/modeSelectAction';
 
 // =============================================================================
 // Embed color palette (color-coded by phase)
@@ -1175,12 +1180,29 @@ export const startBot = async (cliLogLevel?: LogLevel) => {
                 workspaceService,
                 modeService,
                 extractionMode: config.extractionMode,
+                templateRepo,
+                fetchQuota: () => bridge.quota.fetchQuota(),
             });
 
-            const telegramSelectHandler = createTelegramSelectHandler({
+            // Compose select handlers: project select + mode select
+            const projectSelectHandler = createTelegramSelectHandler({
                 workspaceService,
                 telegramBindingRepo,
             });
+            const modeSelectAction = createModeSelectAction({ bridge, modeService });
+            const telegramSelectHandler = createPlatformSelectHandler({
+                actions: [
+                    modeSelectAction,
+                ],
+            });
+            // Composite handler that routes to the right handler
+            const compositeSelectHandler = async (interaction: import('../platform/types').PlatformSelectInteraction) => {
+                if (interaction.customId === 'mode_select') {
+                    await telegramSelectHandler(interaction);
+                    return;
+                }
+                await projectSelectHandler(interaction);
+            };
 
             const allowedUsers = new Map<PlatformType, ReadonlySet<string>>();
             if (config.telegramAllowedUserIds && config.telegramAllowedUserIds.length > 0) {
@@ -1194,6 +1216,9 @@ export const startBot = async (cliLogLevel?: LogLevel) => {
                     createApprovalButtonAction({ bridge }),
                     createPlanningButtonAction({ bridge }),
                     createErrorPopupButtonAction({ bridge }),
+                    createModelButtonAction({ bridge, fetchQuota: () => bridge.quota.fetchQuota() }),
+                    createAutoAcceptButtonAction({ autoAcceptService: bridge.autoAccept }),
+                    createTemplateButtonAction({ bridge, templateRepo }),
                 ],
             });
 
@@ -1202,7 +1227,7 @@ export const startBot = async (cliLogLevel?: LogLevel) => {
                 {
                     onMessage: telegramHandler,
                     onButtonInteraction: telegramButtonHandler,
-                    onSelectInteraction: telegramSelectHandler,
+                    onSelectInteraction: compositeSelectHandler,
                 },
             );
             // Register bot commands BEFORE starting polling so Telegram shows "/" suggestions
@@ -1210,6 +1235,12 @@ export const startBot = async (cliLogLevel?: LogLevel) => {
                 { command: 'start', description: 'Welcome message' },
                 { command: 'project', description: 'Manage workspace bindings' },
                 { command: 'status', description: 'Show bot status and connections' },
+                { command: 'mode', description: 'Switch execution mode' },
+                { command: 'model', description: 'Switch LLM model' },
+                { command: 'screenshot', description: 'Capture Antigravity screenshot' },
+                { command: 'autoaccept', description: 'Toggle auto-accept mode' },
+                { command: 'template', description: 'List prompt templates' },
+                { command: 'logs', description: 'Show recent log entries' },
                 { command: 'stop', description: 'Interrupt active LLM generation' },
                 { command: 'help', description: 'Show available commands' },
                 { command: 'ping', description: 'Check bot latency' },

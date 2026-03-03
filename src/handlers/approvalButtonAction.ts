@@ -35,6 +35,9 @@ export function createApprovalButtonAction(
         ): Promise<void> {
             const { action, channelId } = params;
 
+            // Acknowledge immediately so Telegram doesn't time out
+            await interaction.deferUpdate().catch(() => {});
+
             // Channel scope check (skip if no channelId was encoded)
             if (channelId && channelId !== interaction.channel.id) {
                 await interaction
@@ -44,29 +47,46 @@ export function createApprovalButtonAction(
             }
 
             const projectName = params.projectName || deps.bridge.lastActiveWorkspace;
+            logger.debug(`[ApprovalAction] action=${action} project=${projectName ?? 'null'} channel=${interaction.channel.id}`);
+
             const detector = projectName
                 ? deps.bridge.pool.getApprovalDetector(projectName)
                 : undefined;
 
             if (!detector) {
+                logger.warn(`[ApprovalAction] No detector for project=${projectName}`);
                 await interaction
                     .reply({ text: 'Approval detector not found.' })
                     .catch(() => {});
                 return;
             }
 
+            const lastInfo = detector.getLastDetectedInfo();
+            logger.debug(`[ApprovalAction] lastDetectedInfo: ${lastInfo ? JSON.stringify(lastInfo) : 'null'}`);
+
             let success = false;
             let actionLabel = '';
-            if (action === 'approve') {
-                success = await detector.approveButton();
-                actionLabel = 'Allow';
-            } else if (action === 'always_allow') {
-                success = await detector.alwaysAllowButton();
-                actionLabel = 'Allow Chat';
-            } else {
-                success = await detector.denyButton();
-                actionLabel = 'Deny';
+            try {
+                if (action === 'approve') {
+                    success = await detector.approveButton();
+                    actionLabel = 'Allow';
+                } else if (action === 'always_allow') {
+                    success = await detector.alwaysAllowButton();
+                    actionLabel = 'Allow Chat';
+                } else {
+                    success = await detector.denyButton();
+                    actionLabel = 'Deny';
+                }
+            } catch (err: unknown) {
+                const msg = err instanceof Error ? err.message : String(err);
+                logger.error(`[ApprovalAction] CDP click failed: ${msg}`);
+                await interaction
+                    .reply({ text: `Approval failed: ${msg}` })
+                    .catch(() => {});
+                return;
             }
+
+            logger.debug(`[ApprovalAction] ${actionLabel} result: ${success}`);
 
             if (success) {
                 await interaction

@@ -112,7 +112,7 @@ describe('createApprovalButtonAction', () => {
 
     describe('execute', () => {
         it('calls detector.approveButton() and updates message on success', async () => {
-            const mockDetector = { approveButton: jest.fn().mockResolvedValue(true) };
+            const mockDetector = { approveButton: jest.fn().mockResolvedValue(true), getLastDetectedInfo: jest.fn().mockReturnValue(null) };
             const bridge = makeBridge();
             (bridge.pool.getApprovalDetector as jest.Mock).mockReturnValue(mockDetector);
 
@@ -133,7 +133,7 @@ describe('createApprovalButtonAction', () => {
         });
 
         it('calls detector.denyButton() on deny action', async () => {
-            const mockDetector = { denyButton: jest.fn().mockResolvedValue(true) };
+            const mockDetector = { denyButton: jest.fn().mockResolvedValue(true), getLastDetectedInfo: jest.fn().mockReturnValue(null) };
             const bridge = makeBridge();
             (bridge.pool.getApprovalDetector as jest.Mock).mockReturnValue(mockDetector);
 
@@ -154,7 +154,7 @@ describe('createApprovalButtonAction', () => {
         });
 
         it('calls detector.alwaysAllowButton() on always_allow action', async () => {
-            const mockDetector = { alwaysAllowButton: jest.fn().mockResolvedValue(true) };
+            const mockDetector = { alwaysAllowButton: jest.fn().mockResolvedValue(true), getLastDetectedInfo: jest.fn().mockReturnValue(null) };
             const bridge = makeBridge();
             (bridge.pool.getApprovalDetector as jest.Mock).mockReturnValue(mockDetector);
 
@@ -193,7 +193,7 @@ describe('createApprovalButtonAction', () => {
         });
 
         it('replies with error when button click fails', async () => {
-            const mockDetector = { approveButton: jest.fn().mockResolvedValue(false) };
+            const mockDetector = { approveButton: jest.fn().mockResolvedValue(false), getLastDetectedInfo: jest.fn().mockReturnValue(null) };
             const bridge = makeBridge();
             (bridge.pool.getApprovalDetector as jest.Mock).mockReturnValue(mockDetector);
 
@@ -230,7 +230,7 @@ describe('createApprovalButtonAction', () => {
         });
 
         it('falls back to lastActiveWorkspace when projectName is empty', async () => {
-            const mockDetector = { approveButton: jest.fn().mockResolvedValue(true) };
+            const mockDetector = { approveButton: jest.fn().mockResolvedValue(true), getLastDetectedInfo: jest.fn().mockReturnValue(null) };
             const bridge = makeBridge({ lastActiveWorkspace: 'fallbackProject' });
             (bridge.pool.getApprovalDetector as jest.Mock).mockReturnValue(mockDetector);
 

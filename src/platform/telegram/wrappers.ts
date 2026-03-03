@@ -13,6 +13,7 @@ import type {
     PlatformSentMessage,
     PlatformButtonInteraction,
     MessagePayload,
+    FileAttachment,
     ComponentRow,
     ButtonDef,
     SelectMenuDef,
@@ -35,6 +36,8 @@ export interface TelegramBotLike {
         answerCallbackQuery(callbackQueryId: string, options?: any): Promise<any>;
         setMessageReaction?(chatId: number | string, messageId: number, reaction: readonly any[], options?: any): Promise<any>;
         setMyCommands?(commands: readonly { command: string; description: string }[]): Promise<any>;
+        sendPhoto?(chatId: number | string, photo: any, options?: any): Promise<any>;
+        sendDocument?(chatId: number | string, document: any, options?: any): Promise<any>;
     };
 }
 
@@ -100,17 +103,17 @@ function componentRowsToInlineKeyboard(
     const keyboard: Array<ReadonlyArray<InlineButton>> = [];
 
     for (const row of rows) {
-        const buttons: InlineButton[] = [];
+        let buttons: InlineButton[] = [];
         for (const comp of row.components) {
             if (comp.type === 'button') {
-                buttons.push(buttonDefToInline(comp));
+                buttons = [...buttons, buttonDefToInline(comp)];
             } else if (comp.type === 'selectMenu') {
                 // A select menu becomes multiple rows (one per option)
                 const menuRows = selectMenuToInlineRows(comp);
                 // Flush any accumulated buttons first
                 if (buttons.length > 0) {
                     keyboard.push([...buttons]);
-                    buttons.length = 0;
+                    buttons = [];
                 }
                 for (const menuRow of menuRows) {
                     keyboard.push(menuRow);
@@ -194,6 +197,39 @@ export function wrapTelegramUser(from: TelegramFrom): PlatformUser {
     };
 }
 
+/**
+ * Try to send a file attachment via Telegram photo/document API.
+ * Returns the sent message, or null if file sending is not available.
+ */
+async function trySendFile(
+    api: TelegramBotLike['api'],
+    chatId: number | string,
+    file: FileAttachment,
+    caption: string | undefined,
+    extraOptions?: Record<string, unknown>,
+): Promise<any | null> {
+    const isImage = file.contentType?.startsWith('image/') || file.name.match(/\.(png|jpe?g|gif|webp)$/i);
+
+    if (isImage && api.sendPhoto) {
+        // grammY accepts InputFile, Buffer, or Uint8Array
+        return api.sendPhoto(chatId, file.data, {
+            caption,
+            parse_mode: caption ? 'HTML' : undefined,
+            ...extraOptions,
+        });
+    }
+
+    if (api.sendDocument) {
+        return api.sendDocument(chatId, file.data, {
+            caption,
+            parse_mode: caption ? 'HTML' : undefined,
+            ...extraOptions,
+        });
+    }
+
+    return null;
+}
+
 /** Wrap a Telegram chat as a PlatformChannel. */
 export function wrapTelegramChannel(
     api: TelegramBotLike['api'],
@@ -206,6 +242,21 @@ export function wrapTelegramChannel(
         platform: 'telegram',
         name: undefined,
         async send(payload: MessagePayload): Promise<PlatformSentMessage> {
+            // Handle file attachments (e.g., screenshots)
+            if (payload.files && payload.files.length > 0) {
+                const file = payload.files[0];
+                const opts = payload.text || payload.richContent
+                    ? toTelegramPayload({ text: payload.text, richContent: payload.richContent })
+                    : null;
+                const caption = opts?.text;
+
+                const sent = await trySendFile(api, chatId, file, caption);
+                if (sent) {
+                    return wrapTelegramSentMessage(sent, api, chatId);
+                }
+                // Fallback to text-only if file sending not supported
+            }
+
             const opts = toTelegramPayload(payload);
             const { text, ...rest } = opts;
             const sent = await api.sendMessage(chatId, text, rest);
@@ -251,6 +302,27 @@ export function wrapTelegramMessage(
             }
         },
         async reply(payload: MessagePayload): Promise<PlatformSentMessage> {
+            // Handle file attachments (e.g., screenshots)
+            if (payload.files && payload.files.length > 0) {
+                const file = payload.files[0];
+                const opts = payload.text || payload.richContent
+                    ? toTelegramPayload({ text: payload.text, richContent: payload.richContent })
+                    : null;
+                const caption = opts?.text;
+
+                const sent = await trySendFile(
+                    api,
+                    msg.chat.id,
+                    file,
+                    caption,
+                    { reply_to_message_id: msg.message_id },
+                );
+                if (sent) {
+                    return wrapTelegramSentMessage(sent, api, msg.chat.id);
+                }
+                // Fallback to text-only if file sending not supported
+            }
+
             const opts = toTelegramPayload(payload);
             const { text, ...rest } = opts;
             const sent = await api.sendMessage(msg.chat.id, text, {

@@ -56,8 +56,19 @@ export function createErrorPopupButtonAction(
                 return;
             }
 
+            // Acknowledge immediately so Telegram doesn't time out
+            await interaction.deferUpdate().catch(() => {});
+
             if (action === 'dismiss') {
-                const clicked = await detector.clickDismissButton();
+                let clicked = false;
+                try {
+                    clicked = await detector.clickDismissButton();
+                } catch (err: unknown) {
+                    const msg = err instanceof Error ? err.message : String(err);
+                    logger.error(`[ErrorPopupAction] CDP click failed: ${msg}`);
+                    await interaction.reply({ text: `Dismiss failed: ${msg}` }).catch(() => {});
+                    return;
+                }
                 if (clicked) {
                     await interaction
                         .update({
@@ -73,8 +84,6 @@ export function createErrorPopupButtonAction(
                         .catch(() => {});
                 }
             } else if (action === 'copy_debug') {
-                await interaction.deferUpdate().catch(() => {});
-
                 const clicked = await detector.clickCopyDebugInfoButton();
                 if (!clicked) {
                     await interaction
@@ -113,7 +122,15 @@ export function createErrorPopupButtonAction(
                 }
             } else {
                 // Retry action
-                const clicked = await detector.clickRetryButton();
+                let clicked = false;
+                try {
+                    clicked = await detector.clickRetryButton();
+                } catch (err: unknown) {
+                    const msg = err instanceof Error ? err.message : String(err);
+                    logger.error(`[ErrorPopupAction] CDP click failed: ${msg}`);
+                    await interaction.reply({ text: `Retry failed: ${msg}` }).catch(() => {});
+                    return;
+                }
                 if (clicked) {
                     await interaction
                         .update({
