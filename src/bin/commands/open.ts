@@ -51,7 +51,7 @@ function openMacOS(port: number): Promise<void> {
 
 function openWindows(port: number): Promise<void> {
     return new Promise((resolve, reject) => {
-        execFile(`${APP_NAME}.exe`, [`--remote-debugging-port=${port}`], { shell: true }, (err) => {
+        execFile(APP_NAME, [`--remote-debugging-port=${port}`], { shell: true }, (err) => {
             if (err) {
                 reject(new Error(`Failed to open ${APP_NAME}: ${err.message}`));
                 return;
