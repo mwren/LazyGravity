@@ -294,14 +294,18 @@ export function createMessageCreateHandler(deps: MessageCreateHandlerDeps) {
                                         );
 
                                         if (!ownedByOther) {
-                                            logger.info(
-                                                `[SessionRecovery] Adopting renamed title: ` +
-                                                `"${session.displayName}" -> "${currentInfo.title}" ` +
-                                                `(channel: ${message.channelId})`,
-                                            );
-                                            deps.chatSessionRepo.updateDisplayName(message.channelId, currentInfo.title);
-                                            registerApprovalSessionChannel(deps.bridge, projectName, currentInfo.title, platformChannel);
-                                            activationResult = await deps.chatSessionService.activateSessionByTitle(cdp, currentInfo.title);
+                                            const recoveredTitle = currentInfo.title;
+                                            const retryResult = await deps.chatSessionService.activateSessionByTitle(cdp, recoveredTitle);
+                                            if (retryResult.ok) {
+                                                logger.info(
+                                                    `[SessionRecovery] Adopting renamed title: ` +
+                                                    `"${session.displayName}" -> "${recoveredTitle}" ` +
+                                                    `(channel: ${message.channelId})`,
+                                                );
+                                                deps.chatSessionRepo.updateDisplayName(message.channelId, recoveredTitle);
+                                                registerApprovalSessionChannel(deps.bridge, projectName, recoveredTitle, platformChannel);
+                                            }
+                                            activationResult = retryResult;
                                         }
                                     }
 

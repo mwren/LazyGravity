@@ -193,6 +193,39 @@ describe('messageCreateHandler', () => {
         expect(reply).toHaveBeenCalled();
     });
 
+    it('does not persist title when retry activation also fails', async () => {
+        const sendPromptToAntigravity = jest.fn();
+        const reply = jest.fn().mockResolvedValue(undefined);
+        const updateDisplayName = jest.fn();
+
+        const handler = createMessageCreateHandler(buildDeps({
+            sendPromptToAntigravity,
+            chatSessionService: {
+                activateSessionByTitle: jest.fn().mockResolvedValue({ ok: false, error: 'still fails' }),
+                getCurrentSessionInfo: jest.fn().mockResolvedValue({
+                    title: 'Renamed Title',
+                    hasActiveChat: true,
+                }),
+            },
+            chatSessionRepo: {
+                findByChannelId: jest.fn().mockReturnValue({
+                    isRenamed: true,
+                    displayName: 'Original Title',
+                    categoryId: 'cat-1',
+                    channelId: 'ch-1',
+                }),
+                findByCategoryId: jest.fn().mockReturnValue([]),
+                updateDisplayName,
+            },
+        }));
+
+        await handler(buildMessage({ reply }));
+
+        expect(updateDisplayName).not.toHaveBeenCalled();
+        expect(sendPromptToAntigravity).not.toHaveBeenCalled();
+        expect(reply).toHaveBeenCalled();
+    });
+
     it('does not adopt title when no active chat exists during recovery', async () => {
         const sendPromptToAntigravity = jest.fn();
         const reply = jest.fn().mockResolvedValue(undefined);
