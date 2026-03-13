@@ -11,6 +11,7 @@ import {
     WORKSPACE_SELECT_ID,
 } from '../../src/commands/workspaceCommandHandler';
 import { ITEMS_PER_PAGE, PROJECT_SELECT_ID } from '../../src/ui/projectListUi';
+import { DiscordAPIError } from 'discord.js';
 
 describe('WorkspaceCommandHandler', () => {
     let db: Database.Database;
@@ -150,7 +151,11 @@ describe('WorkspaceCommandHandler', () => {
                     },
                     fetch: jest.fn().mockImplementation((id) => {
                         if (id === 'deleted-ch-1') {
-                            return Promise.reject(new Error('Unknown Channel'));
+                            const err = new Error('Unknown Channel') as any;
+                            err.code = 10003;
+                            // Add DiscordAPIError prototype dynamically for instanceof check
+                            Object.setPrototypeOf(err, DiscordAPIError.prototype);
+                            return Promise.reject(err);
                         }
                         return Promise.resolve({
                             find: jest.fn().mockReturnValue(undefined),

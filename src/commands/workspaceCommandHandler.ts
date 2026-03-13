@@ -7,6 +7,7 @@ import {
     StringSelectMenuInteraction,
     EmbedBuilder,
     Guild,
+    DiscordAPIError,
 } from 'discord.js';
 import { WorkspaceBindingRepository, WorkspaceBindingRecord } from '../database/workspaceBindingRepository';
 import { ChatSessionRepository } from '../database/chatSessionRepository';
@@ -53,7 +54,6 @@ export class WorkspaceCommandHandler {
                     // Transient failures: preserve binding for next validation attempt
                     logger.error(`[Cleanup] Failed to validate binding for channel ${b.channelId}`, error);
                     validBindings.push(b);
-                }
                 }
             } catch (error) {
                 logger.error(`[Cleanup] Failed to remove stale binding for channel ${b.channelId}`, error);
