@@ -277,14 +277,46 @@ export function createMessageCreateHandler(deps: MessageCreateHandlerDeps) {
                             }
 
                             if (session?.isRenamed && session.displayName) {
-                                const activationResult = await deps.chatSessionService.activateSessionByTitle(cdp, session.displayName);
+                                let activationResult = await deps.chatSessionService.activateSessionByTitle(cdp, session.displayName);
                                 if (!activationResult.ok) {
-                                    const reason = activationResult.error ? ` (${activationResult.error})` : '';
-                                    await message.reply(
-                                        `⚠️ Could not route this message to the bound session (${session.displayName}). ` +
-                                        `Please open /chat and verify the session${reason}.`,
-                                    ).catch(() => { });
-                                    return;
+                                    // Recovery: Antigravity may have renamed the session.
+                                    // Check if the currently active chat is the renamed version.
+                                    const currentInfo = await deps.chatSessionService.getCurrentSessionInfo(cdp);
+                                    const isRecoverable = currentInfo.hasActiveChat
+                                        && currentInfo.title.trim() !== ''
+                                        && currentInfo.title !== session.displayName;
+
+                                    if (isRecoverable) {
+                                        const siblings = deps.chatSessionRepo.findByCategoryId(session.categoryId);
+                                        const ownedByOther = siblings.some(
+                                            (s) => s.channelId !== message.channelId
+                                                && s.displayName === currentInfo.title,
+                                        );
+
+                                        if (!ownedByOther) {
+                                            const recoveredTitle = currentInfo.title;
+                                            const retryResult = await deps.chatSessionService.activateSessionByTitle(cdp, recoveredTitle);
+                                            if (retryResult.ok) {
+                                                logger.info(
+                                                    `[SessionRecovery] Adopting renamed title: ` +
+                                                    `"${session.displayName}" -> "${recoveredTitle}" ` +
+                                                    `(channel: ${message.channelId})`,
+                                                );
+                                                deps.chatSessionRepo.updateDisplayName(message.channelId, recoveredTitle);
+                                                registerApprovalSessionChannel(deps.bridge, projectName, recoveredTitle, platformChannel);
+                                            }
+                                            activationResult = retryResult;
+                                        }
+                                    }
+
+                                    if (!activationResult.ok) {
+                                        const reason = activationResult.error ? ` (${activationResult.error})` : '';
+                                        await message.reply(
+                                            `⚠️ Could not route this message to the bound session (${session.displayName}). ` +
+                                            `Please open /chat and verify the session${reason}.`,
+                                        ).catch(() => { });
+                                        return;
+                                    }
                                 }
                             } else if (session && !session.isRenamed) {
                                 try {
