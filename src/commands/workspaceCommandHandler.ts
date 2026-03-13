@@ -38,13 +38,22 @@ export class WorkspaceCommandHandler {
         for (const b of bindings) {
             try {
                 // Try fetching the channel from Discord API
-                const channel = await guild.channels.fetch(b.channelId).catch(() => null);
-                if (channel) {
+                try {
+                    const channel = await guild.channels.fetch(b.channelId);
+                    if (channel) validBindings.push(b);
+                } catch (error) {
+                    // Only cleanup for confirmed deleted channels (code 10003)
+                    if (error instanceof DiscordAPIError && error.code === 10003) {
+                        logger.info(`[Cleanup] Removed stale binding for deleted channel ${b.channelId}`);
+                        this.chatSessionRepo.deleteByChannelId(b.channelId);
+                        this.bindingRepo.deleteByChannelId(b.channelId);
+                        continue;
+                    }
+
+                    // Transient failures: preserve binding for next validation attempt
+                    logger.error(`[Cleanup] Failed to validate binding for channel ${b.channelId}`, error);
                     validBindings.push(b);
-                } else {
-                    logger.info(`[Cleanup] Removed stale binding for deleted channel ${b.channelId}`);
-                    this.chatSessionRepo.deleteByChannelId(b.channelId);
-                    this.bindingRepo.deleteByChannelId(b.channelId);
+                }
                 }
             } catch (error) {
                 logger.error(`[Cleanup] Failed to remove stale binding for channel ${b.channelId}`, error);
