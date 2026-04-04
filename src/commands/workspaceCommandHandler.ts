@@ -308,4 +308,13 @@ export class WorkspaceCommandHandler {
         if (!binding) return undefined;
         return this.workspaceService.getWorkspacePath(binding.workspacePath);
     }
+
+    /**
+     * Get the relative project name from a channel ID
+     */
+    public getProjectNameForChannel(channelId: string): string | undefined {
+        const binding = this.bindingRepo.findByChannelId(channelId);
+        if (!binding) return undefined;
+        return binding.workspacePath;
+    }
 }

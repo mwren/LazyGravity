@@ -148,9 +148,13 @@ export async function buildModelsUI(
     cdp: CdpService,
     fetchQuota: () => Promise<any[]>,
 ): Promise<ModelsUiPayload | null> {
-    const models = await cdp.getUiModels();
+    let models = await cdp.getUiModels();
     const currentModel = await cdp.getCurrentModel();
     const quotaData = await fetchQuota();
+
+    if (models.length === 0 && quotaData && quotaData.length > 0) {
+        models = quotaData.map(q => q.label || q.model).filter(Boolean);
+    }
 
     if (models.length === 0) return null;
 

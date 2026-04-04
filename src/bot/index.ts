@@ -197,6 +197,7 @@ async function sendPromptToAntigravity(
 
     // Resolve output format once at the start (no mid-response switches)
     const outputFormat: OutputFormat = options?.userPrefRepo?.getOutputFormat(message.author.id) ?? 'embed';
+    const userVoice = options?.userPrefRepo?.getVoice(message.author.id) ?? 'af_bella';
 
     // Add reaction to acknowledge command receipt
     await message.react('👀').catch(() => { });
@@ -765,7 +766,7 @@ async function sendPromptToAntigravity(
                         if (channel) {
                             await channel.send({ content: '🎧 Synthesizing audio...' }).then(async (msg: Message) => {
                                 try {
-                                    const audioBuffer = await generateAudioStream(finalOutputText);
+                                    const audioBuffer = await generateAudioStream(finalOutputText, userVoice);
                                     if (audioBuffer) {
                                         await channel.send({ files: [{ attachment: audioBuffer, name: 'antigravity_response.mp3' }] });
                                     } else {
@@ -1432,6 +1433,11 @@ async function handleSlashInteraction(
 ): Promise<void> {
     const commandName = interaction.commandName;
 
+    const getChannelAwareCdp = () => {
+        const wsName = wsHandler.getProjectNameForChannel(interaction.channelId);
+        return getCurrentCdp(bridge, wsName);
+    };
+
     switch (commandName) {
         case 'help': {
             const helpFields = [
@@ -1508,7 +1514,7 @@ async function handleSlashInteraction(
         }
 
         case 'mode': {
-            await sendModeUI(interaction, modeService, { getCurrentCdp: () => getCurrentCdp(bridge) });
+            await sendModeUI(interaction, modeService, { getCurrentCdp: () => getChannelAwareCdp() });
             break;
         }
 
@@ -1516,11 +1522,11 @@ async function handleSlashInteraction(
             const modelName = interaction.options.getString('name');
             if (!modelName) {
                 await sendModelsUI(interaction, {
-                    getCurrentCdp: () => getCurrentCdp(bridge),
+                    getCurrentCdp: () => getChannelAwareCdp(),
                     fetchQuota: async () => bridge.quota.fetchQuota(),
                 });
             } else {
-                const cdp = getCurrentCdp(bridge);
+                const cdp = getChannelAwareCdp();
                 if (!cdp) {
                     await interaction.editReply({ content: 'Not connected to CDP.' });
                     break;
@@ -1569,7 +1575,7 @@ async function handleSlashInteraction(
         case 'status': {
             const activeNames = bridge.pool.getActiveWorkspaceNames();
             const currentModel = (() => {
-                const cdp = getCurrentCdp(bridge);
+                const cdp = getChannelAwareCdp();
                 return cdp ? 'CDP Connected' : 'Disconnected';
             })();
             const currentMode = modeService.getCurrentMode();
@@ -1657,12 +1663,12 @@ async function handleSlashInteraction(
         }
 
         case 'screenshot': {
-            await handleScreenshot(interaction, getCurrentCdp(bridge));
+            await handleScreenshot(interaction, getChannelAwareCdp());
             break;
         }
 
         case 'stop': {
-            const cdp = getCurrentCdp(bridge);
+            const cdp = getChannelAwareCdp();
             if (!cdp) {
                 await interaction.editReply({ content: '⚠️ Not connected to CDP. Please connect to a project first.' });
                 break;

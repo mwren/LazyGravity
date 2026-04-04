@@ -303,7 +303,11 @@ export function initCdpBridge(autoApproveDefault: boolean): CdpBridge {
  * Used in contexts where the workspace path is not explicitly provided,
  * such as button interactions and model/mode switching.
  */
-export function getCurrentCdp(bridge: CdpBridge): CdpService | null {
+export function getCurrentCdp(bridge: CdpBridge, preferredWorkspace?: string): CdpService | null {
+    if (preferredWorkspace) {
+        const cdp = bridge.pool.getConnected(preferredWorkspace);
+        if (cdp) return cdp;
+    }
     if (!bridge.lastActiveWorkspace) return null;
     return bridge.pool.getConnected(bridge.lastActiveWorkspace);
 }

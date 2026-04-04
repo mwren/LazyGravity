@@ -206,10 +206,29 @@ export class PlanningDetector {
     }
 
     async extractPlanContent(): Promise<string | null> {
-        // Instead of executing specific DOM extraction that usually fails 
-        // because plan contents are now embedded in an iframe context, 
-        // we'll just extract the context text directly or return the description.
-        return this.lastDetectedInfo?.description ?? null;
+        try {
+            const contextId = this.cdpService.getPrimaryContextId();
+            const callParams: Record<string, unknown> = {
+                expression: EXTRACT_PLAN_CONTENT_SCRIPT,
+                returnByValue: true,
+                awaitPromise: false,
+            };
+            if (contextId !== null) {
+                callParams.contextId = contextId;
+            }
+
+            const result = await this.cdpService.call('Runtime.evaluate', callParams);
+            const extracted = result?.result?.value;
+            
+            // If DOM extraction succeeds and isn't empty, use it. Otherwise fallback to chat description.
+            if (typeof extracted === 'string' && extracted.length > 50) {
+                return extracted;
+            }
+            return this.lastDetectedInfo?.description ?? null;
+        } catch (e) {
+            logger.error('[PlanningDetector] Error extracting plan content', e);
+            return this.lastDetectedInfo?.description ?? null;
+        }
     }
 
     /** Schedule the next poll. */

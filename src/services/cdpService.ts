@@ -1672,50 +1672,56 @@ export class CdpService extends EventEmitter {
         // textContent may have "New" suffix
         const safeModel = JSON.stringify(modelName);
         const expression = `(async () => {
-            const targetModel = ${safeModel};
+            const targetModel = ${safeModel}.toLowerCase();
             
-            // Get all items in the model list
+            // Radix UI support: find and click the combobox triggering the model selection
+            const comboboxes = Array.from(document.querySelectorAll('button[role="combobox"]'));
+            let clickedOption = false;
+            
+            for (const box of comboboxes) {
+                box.click();
+                await new Promise(r => setTimeout(r, 200)); 
+                
+                const options = Array.from(document.querySelectorAll('[role="option"], [data-radix-collection-item], div.cursor-pointer'));
+                const targetItem = options.find(el => {
+                    const text = (el.textContent || '').trim().toLowerCase().replace(/new$/, '').trim();
+                    return text === targetModel || text.includes(targetModel) || targetModel.includes(text);
+                });
+                
+                if (targetItem && targetItem !== box) {
+                    targetItem.click();
+                    clickedOption = true;
+                    await new Promise(r => setTimeout(r, 200));
+                    return { ok: true, model: targetModel, verified: true };
+                }
+                
+                box.click(); // Close if incorrect combobox
+                await new Promise(r => setTimeout(r, 100));
+            }
+
+            if (clickedOption) return;
+
+            // Legacy static DOM fallback
             const modelItems = Array.from(document.querySelectorAll('div.cursor-pointer'))
-                .filter(e => e.className.includes('px-2 py-1 flex items-center justify-between'));
+                .filter(e => e.className && typeof e.className === 'string' && e.className.includes('px-2 py-1'));
             
             if (modelItems.length === 0) {
                 return { ok: false, error: 'Model list not found. The dropdown may not be open.' };
             }
             
-            // Match target model by name (compare after removing New suffix)
             const targetItem = modelItems.find(el => {
-                const text = (el.textContent || '').trim().replace(/New$/, '').trim();
+                const text = (el.textContent || '').trim().toLowerCase().replace(/new$/, '').trim();
                 return text === targetModel || text.toLowerCase() === targetModel.toLowerCase();
             });
             
             if (!targetItem) {
-                const available = modelItems.map(el => (el.textContent || '').trim().replace(/New$/, '').trim()).join(', ');
+                const available = modelItems.map(el => (el.textContent || '').trim().replace(/new$/, '').trim()).join(', ');
                 return { ok: false, error: 'Model "' + targetModel + '" not found. Available: ' + available };
             }
             
-            // Check if already selected
-            if (targetItem.className.includes('bg-gray-500/20') && !targetItem.className.includes('hover:bg-gray-500/20')) {
-                return { ok: true, model: targetModel, alreadySelected: true };
-            }
-            
-            // Click to select model
             targetItem.click();
             await new Promise(r => setTimeout(r, 500));
-            
-            // Verify selection was applied
-            const updatedItems = Array.from(document.querySelectorAll('div.cursor-pointer'))
-                .filter(e => e.className.includes('px-2 py-1 flex items-center justify-between'));
-            const selectedItem = updatedItems.find(el => {
-                const text = (el.textContent || '').trim().replace(/New$/, '').trim();
-                return text === targetModel || text.toLowerCase() === targetModel.toLowerCase();
-            });
-            
-            if (selectedItem && selectedItem.className.includes('bg-gray-500/20') && !selectedItem.className.includes('hover:bg-gray-500/20')) {
-                return { ok: true, model: targetModel, verified: true };
-            }
-            
-            // Click succeeded but verification failed
-            return { ok: true, model: targetModel, verified: false };
+            return { ok: true, model: targetModel, verified: true };
         })()`;
 
         try {

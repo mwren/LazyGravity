@@ -22,8 +22,10 @@ import {
     OUTPUT_BTN_EMBED,
     OUTPUT_BTN_PLAIN,
     OUTPUT_BTN_AUDIO,
+    OUTPUT_SELECT_VOICE,
     sendOutputUI,
 } from '../ui/outputUi';
+import { generateAudioStream } from '../utils/audioHandler';
 import { UserPreferenceRepository, OutputFormat } from '../database/userPreferenceRepository';
 import { ChatCommandHandler } from '../commands/chatCommandHandler';
 import {
@@ -63,7 +65,7 @@ export interface InteractionCreateHandlerDeps {
         autoAcceptService: AutoAcceptService,
     ) => Promise<void>;
     handleScreenshot?: (...args: any[]) => Promise<void>;
-    getCurrentCdp: (bridge: CdpBridge) => CdpService | null;
+    getCurrentCdp: (bridge: CdpBridge, preferredWorkspace?: string) => CdpService | null;
     parseApprovalCustomId: (customId: string) => { action: 'approve' | 'always_allow' | 'deny'; projectName: string | null; channelId: string | null } | null;
     parsePlanningCustomId: (customId: string) => { action: 'open' | 'proceed'; projectName: string | null; channelId: string | null } | null;
     parseErrorPopupCustomId: (customId: string) => { action: 'dismiss' | 'copy_debug' | 'retry'; projectName: string | null; channelId: string | null } | null;
@@ -530,7 +532,7 @@ export function createInteractionCreateHandler(deps: InteractionCreateHandlerDep
 
                 if (interaction.customId === 'model_set_default_btn') {
                     await interaction.deferUpdate();
-                    const cdp = deps.getCurrentCdp(deps.bridge);
+                    const cdp = deps.getCurrentCdp(deps.bridge, deps.wsHandler.getProjectNameForChannel(interaction.channelId));
                     if (!cdp) {
                         await interaction.followUp({ content: 'Not connected to CDP.', flags: MessageFlags.Ephemeral });
                         return;
@@ -547,7 +549,7 @@ export function createInteractionCreateHandler(deps: InteractionCreateHandlerDep
                     await deps.sendModelsUI(
                         { editReply: async (data: any) => await interaction.editReply(data) },
                         {
-                            getCurrentCdp: () => deps.getCurrentCdp(deps.bridge),
+                            getCurrentCdp: () => deps.getCurrentCdp(deps.bridge, deps.wsHandler.getProjectNameForChannel(interaction.channelId)),
                             fetchQuota: async () => deps.bridge.quota.fetchQuota(),
                         },
                     );
@@ -564,7 +566,7 @@ export function createInteractionCreateHandler(deps: InteractionCreateHandlerDep
                     await deps.sendModelsUI(
                         { editReply: async (data: any) => await interaction.editReply(data) },
                         {
-                            getCurrentCdp: () => deps.getCurrentCdp(deps.bridge),
+                            getCurrentCdp: () => deps.getCurrentCdp(deps.bridge, deps.wsHandler.getProjectNameForChannel(interaction.channelId)),
                             fetchQuota: async () => deps.bridge.quota.fetchQuota(),
                         },
                     );
@@ -577,7 +579,7 @@ export function createInteractionCreateHandler(deps: InteractionCreateHandlerDep
                     await deps.sendModelsUI(
                         { editReply: async (data: any) => await interaction.editReply(data) },
                         {
-                            getCurrentCdp: () => deps.getCurrentCdp(deps.bridge),
+                            getCurrentCdp: () => deps.getCurrentCdp(deps.bridge, deps.wsHandler.getProjectNameForChannel(interaction.channelId)),
                             fetchQuota: async () => deps.bridge.quota.fetchQuota(),
                         },
                     );
@@ -588,7 +590,7 @@ export function createInteractionCreateHandler(deps: InteractionCreateHandlerDep
                     await interaction.deferUpdate();
 
                     const modelName = interaction.customId.replace('model_btn_', '');
-                    const cdp = deps.getCurrentCdp(deps.bridge);
+                    const cdp = deps.getCurrentCdp(deps.bridge, deps.wsHandler.getProjectNameForChannel(interaction.channelId));
 
                     if (!cdp) {
                         await interaction.followUp({ content: 'Not connected to CDP.', flags: MessageFlags.Ephemeral });
@@ -603,7 +605,7 @@ export function createInteractionCreateHandler(deps: InteractionCreateHandlerDep
                         await deps.sendModelsUI(
                             { editReply: async (data: any) => await interaction.editReply(data) },
                             {
-                                getCurrentCdp: () => deps.getCurrentCdp(deps.bridge),
+                                getCurrentCdp: () => deps.getCurrentCdp(deps.bridge, deps.wsHandler.getProjectNameForChannel(interaction.channelId)),
                                 fetchQuota: async () => deps.bridge.quota.fetchQuota(),
                             },
                         );
@@ -649,6 +651,7 @@ export function createInteractionCreateHandler(deps: InteractionCreateHandlerDep
                         await sendOutputUI(
                             { editReply: async (data: any) => await interaction.editReply(data) },
                             format,
+                            deps.userPrefRepo.getVoice(interaction.user.id)
                         );
 
                         const label = format === 'audio' ? 'Audio (TTS)' : format === 'plain' ? 'Plain Text' : 'Embed';
@@ -691,6 +694,38 @@ export function createInteractionCreateHandler(deps: InteractionCreateHandlerDep
             }
         }
 
+        if (interaction.isStringSelectMenu() && interaction.customId === OUTPUT_SELECT_VOICE) {
+            if (deps.userPrefRepo) {
+                await interaction.deferUpdate();
+                
+                const selectedVoice = interaction.values[0];
+                deps.userPrefRepo.setVoice(interaction.user.id, selectedVoice);
+
+                // Update the UI to reflect the selected dropdown item
+                const currentFormat = deps.userPrefRepo.getOutputFormat(interaction.user.id);
+                await sendOutputUI(
+                    { editReply: async (data: any) => await interaction.editReply(data) },
+                    currentFormat,
+                    selectedVoice
+                );
+
+                // Send an ephemeral sample audio if they just changed it!
+                try {
+                    const sampleAudio = await generateAudioStream('Hi there! This is what my voice sounds like.', selectedVoice);
+                    if (sampleAudio) {
+                        await interaction.followUp({
+                            content: `Here is a sample for **${selectedVoice}**!`,
+                            files: [{ attachment: sampleAudio, name: 'voice_sample.mp3' }],
+                            flags: MessageFlags.Ephemeral
+                        });
+                    }
+                } catch (e) {
+                    logger.error('[Audio] Failed to generate sample stream', e);
+                }
+            }
+            return;
+        }
+
         if (interaction.isStringSelectMenu() && interaction.customId === 'mode_select') {
             if (!deps.config.allowedUserIds.includes(interaction.user.id)) {
                 await interaction.reply({ content: t('You do not have permission.'), flags: MessageFlags.Ephemeral }).catch(logger.error);
@@ -713,7 +748,7 @@ export function createInteractionCreateHandler(deps: InteractionCreateHandlerDep
 
                 deps.modeService.setMode(selectedMode);
 
-                const cdp = deps.getCurrentCdp(deps.bridge);
+                const cdp = deps.getCurrentCdp(deps.bridge, deps.wsHandler.getProjectNameForChannel(interaction.channelId));
                 if (cdp) {
                     const res = await cdp.setUiMode(selectedMode);
                     if (!res.ok) {
