@@ -13,6 +13,7 @@ import {
 
 export const OUTPUT_BTN_EMBED = 'output_btn_embed';
 export const OUTPUT_BTN_PLAIN = 'output_btn_plain';
+export const OUTPUT_BTN_AUDIO = 'output_btn_audio';
 
 /**
  * Build a platform-agnostic MessagePayload for output format UI.
@@ -25,11 +26,12 @@ export function buildOutputPayload(currentFormat: OutputFormat): MessagePayload 
             withDescription(
                 withColor(
                     withTitle(createRichContent(), 'Output Format'),
-                    isEmbed ? 0x5865F2 : 0x2ECC71,
+                    isEmbed ? 0x5865F2 : currentFormat === 'plain' ? 0x2ECC71 : 0xE67E22,
                 ),
-                `**Current Format:** ${isEmbed ? 'Embed' : 'Plain Text'}\n\n` +
+                `**Current Format:** ${isEmbed ? 'Embed' : currentFormat === 'plain' ? 'Plain Text' : 'Audio (TTS)'}\n\n` +
                 'Embed: Rich formatting with colored borders (default).\n' +
-                'Plain Text: Simple text output, easy to copy on mobile.',
+                'Plain Text: Simple text output, easy to copy on mobile.\n' +
+                'Audio: Responses will be narrated into a downloadable voice message!',
             ),
             'Use buttons below to change format',
         ),
@@ -50,7 +52,13 @@ export function buildOutputPayload(currentFormat: OutputFormat): MessagePayload 
                         type: 'button' as const,
                         customId: OUTPUT_BTN_PLAIN,
                         label: 'Plain Text',
-                        style: !isEmbed ? 'success' as const : 'secondary' as const,
+                        style: currentFormat === 'plain' ? 'success' as const : 'secondary' as const,
+                    },
+                    {
+                        type: 'button' as const,
+                        customId: OUTPUT_BTN_AUDIO,
+                        label: 'Audio (TTS)',
+                        style: currentFormat === 'audio' ? 'success' as const : 'secondary' as const,
                     },
                 ],
             },
@@ -66,11 +74,12 @@ export async function sendOutputUI(
 
     const embed = new EmbedBuilder()
         .setTitle('Output Format')
-        .setColor(isEmbed ? 0x5865F2 : 0x2ECC71)
+        .setColor(isEmbed ? 0x5865F2 : currentFormat === 'plain' ? 0x2ECC71 : 0xE67E22)
         .setDescription(
-            `**Current Format:** ${isEmbed ? '📋 Embed' : '📝 Plain Text'}\n\n` +
+            `**Current Format:** ${isEmbed ? '📋 Embed' : currentFormat === 'plain' ? '📝 Plain Text' : '🔊 Audio (TTS)'}\n\n` +
             'Embed: Rich formatting with colored borders (default).\n' +
-            'Plain Text: Simple text output, easy to copy on mobile.',
+            'Plain Text: Simple text output, easy to copy on mobile.\n' +
+            'Audio: Responses will be narrated into a downloadable voice message!',
         )
         .setFooter({ text: 'Use buttons below to change format' })
         .setTimestamp();
@@ -83,7 +92,11 @@ export async function sendOutputUI(
         new ButtonBuilder()
             .setCustomId(OUTPUT_BTN_PLAIN)
             .setLabel('Plain Text')
-            .setStyle(!isEmbed ? ButtonStyle.Success : ButtonStyle.Secondary),
+            .setStyle(currentFormat === 'plain' ? ButtonStyle.Success : ButtonStyle.Secondary),
+        new ButtonBuilder()
+            .setCustomId(OUTPUT_BTN_AUDIO)
+            .setLabel('Audio (TTS)')
+            .setStyle(currentFormat === 'audio' ? ButtonStyle.Success : ButtonStyle.Secondary),
     );
 
     await target.editReply({

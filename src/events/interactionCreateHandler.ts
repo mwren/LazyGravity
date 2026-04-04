@@ -21,6 +21,7 @@ import {
 import {
     OUTPUT_BTN_EMBED,
     OUTPUT_BTN_PLAIN,
+    OUTPUT_BTN_AUDIO,
     sendOutputUI,
 } from '../ui/outputUi';
 import { UserPreferenceRepository, OutputFormat } from '../database/userPreferenceRepository';
@@ -638,11 +639,11 @@ export function createInteractionCreateHandler(deps: InteractionCreateHandlerDep
                     return;
                 }
 
-                if (interaction.customId === OUTPUT_BTN_EMBED || interaction.customId === OUTPUT_BTN_PLAIN) {
+                if (interaction.customId === OUTPUT_BTN_EMBED || interaction.customId === OUTPUT_BTN_PLAIN || interaction.customId === OUTPUT_BTN_AUDIO) {
                     if (deps.userPrefRepo) {
                         await interaction.deferUpdate();
 
-                        const format: OutputFormat = interaction.customId === OUTPUT_BTN_PLAIN ? 'plain' : 'embed';
+                        const format: OutputFormat = interaction.customId === OUTPUT_BTN_AUDIO ? 'audio' : interaction.customId === OUTPUT_BTN_PLAIN ? 'plain' : 'embed';
                         deps.userPrefRepo.setOutputFormat(interaction.user.id, format);
 
                         await sendOutputUI(
@@ -650,7 +651,7 @@ export function createInteractionCreateHandler(deps: InteractionCreateHandlerDep
                             format,
                         );
 
-                        const label = format === 'plain' ? 'Plain Text' : 'Embed';
+                        const label = format === 'audio' ? 'Audio (TTS)' : format === 'plain' ? 'Plain Text' : 'Embed';
                         await interaction.followUp({
                             content: `Output format changed to **${label}**.`,
                             flags: MessageFlags.Ephemeral,

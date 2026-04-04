@@ -88,6 +88,7 @@ import { UserPreferenceRepository, OutputFormat } from '../database/userPreferen
 import { formatAsPlainText, splitPlainText } from '../utils/plainTextFormatter';
 import { createInteractionCreateHandler } from '../events/interactionCreateHandler';
 import { createMessageCreateHandler } from '../events/messageCreateHandler';
+import { generateAudioStream } from '../utils/audioHandler';
 
 // Telegram platform support
 import { Bot, InputFile } from 'grammy';
@@ -750,7 +751,34 @@ async function sendPromptToAntigravity(
 
                     liveResponseUpdateVersion += 1;
                     const responseVersion = liveResponseUpdateVersion;
-                    if (finalOutputText && finalOutputText.trim().length > 0) {
+                    if (outputFormat === 'audio' && finalOutputText && finalOutputText.trim().length > 0) {
+                        await upsertLiveResponseEmbeds(
+                            `${PHASE_ICONS.complete} Text Snapshot`,
+                            finalOutputText,
+                            PHASE_COLORS.complete,
+                            t(`⏱️ Time: ${elapsed}s | Complete`),
+                            {
+                                source: 'complete',
+                                expectedVersion: responseVersion,
+                            },
+                        );
+                        if (channel) {
+                            await channel.send({ content: '🎧 Synthesizing audio...' }).then(async (msg: Message) => {
+                                try {
+                                    const audioBuffer = await generateAudioStream(finalOutputText);
+                                    if (audioBuffer) {
+                                        await channel.send({ files: [{ attachment: audioBuffer, name: 'antigravity_response.mp3' }] });
+                                    } else {
+                                        await channel.send({ content: '⚠️ Failed to synthesize audio.' });
+                                    }
+                                } catch (err) {
+                                    logger.error('[Audio] Audio synthesis failed:', err);
+                                } finally {
+                                    await msg.delete().catch(() => {});
+                                }
+                            });
+                        }
+                    } else if (finalOutputText && finalOutputText.trim().length > 0) {
                         await upsertLiveResponseEmbeds(
                             `${PHASE_ICONS.complete} Final Output`,
                             finalOutputText,

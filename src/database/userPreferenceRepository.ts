@@ -3,7 +3,7 @@ import Database from 'better-sqlite3';
 /**
  * Output format preference type
  */
-export type OutputFormat = 'embed' | 'plain';
+export type OutputFormat = 'embed' | 'plain' | 'audio';
 
 /**
  * User preference record type definition
@@ -82,7 +82,9 @@ export class UserPreferenceRepository {
         ).get(userId) as { output_format: string } | undefined;
 
         if (!row) return 'embed';
-        return row.output_format === 'plain' ? 'plain' : 'embed';
+        if (row.output_format === 'plain') return 'plain';
+        if (row.output_format === 'audio') return 'audio';
+        return 'embed';
     }
 
     /**
