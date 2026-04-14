@@ -48,10 +48,11 @@ export interface RunCommandDetectorOptions {
 const DETECT_RUN_COMMAND_SCRIPT = `(() => {
     const RUN_COMMAND_HEADER_PATTERNS = [
         'run command?', 'run command', 'execute command',
+        'approve command', 'allow command',
         'コマンドを実行', 'コマンド実行'
     ];
-    const RUN_PATTERNS = ['run', 'accept', '実行', 'execute'];
-    const REJECT_PATTERNS = ['reject', 'cancel', '拒否', 'キャンセル'];
+    const RUN_PATTERNS = ['run', 'accept', '実行', 'execute', 'approve', 'allow'];
+    const REJECT_PATTERNS = ['reject', 'cancel', '拒否', 'キャンセル', 'deny', 'decline'];
 
     const normalize = (text) => (text || '').toLowerCase().replace(/\\s+/g, ' ').trim();
 
@@ -117,6 +118,69 @@ const DETECT_RUN_COMMAND_SCRIPT = `(() => {
         runText: (runBtn.textContent || '').trim(),
         rejectText: (rejectBtn.textContent || '').trim(),
     };
+})()`;
+
+/**
+ * Press the toggle on the right side of the Run button to expand its dropdown menu.
+ */
+const EXPAND_RUN_COMMAND_MENU_SCRIPT = `(() => {
+    const RUN_PATTERNS = ['run', 'accept', '実行', 'execute', 'approve', 'allow'];
+    const normalize = (text) => (text || '').toLowerCase().replace(/\\s+/g, ' ').trim();
+    
+    // Check if options are already visible
+    const visibleButtons = Array.from(document.querySelectorAll('button'))
+        .filter(btn => btn.offsetParent !== null);
+        
+    const directTarget = visibleButtons.find(btn => {
+        const t = normalize(btn.textContent || '');
+        return t.includes('workspace') || t.includes('globally');
+    });
+    if ( directTarget) return { ok: true, reason: 'already-visible' };
+
+    const runBtn = visibleButtons.find(btn => {
+        const t = normalize(btn.textContent || '');
+        if (t === '' || t.length > 30) return false;
+        return RUN_PATTERNS.some(p => t === p || t.startsWith(p));
+    });
+
+    if (!runBtn) return { ok: false, error: 'run button not found' };
+
+    const container = runBtn.closest('[class*="border-t"], [class*="border"], div') 
+        || runBtn.parentElement?.parentElement 
+        || runBtn.parentElement;
+        
+    if (!container) return { ok: false, error: 'container not found' };
+
+    const containerButtons = Array.from(container.querySelectorAll('button'))
+        .filter(btn => btn.offsetParent !== null);
+        
+    const toggleBtn = containerButtons.find(btn => {
+        if (btn === runBtn) return false;
+        const text = normalize(btn.textContent || '');
+        const aria = normalize(btn.getAttribute('aria-label') || '');
+        const hasPopup = btn.getAttribute('aria-haspopup');
+        if (hasPopup === 'menu' || hasPopup === 'listbox') return true;
+        if (text === '') return true;
+        return /menu|more|expand|options|dropdown|chevron|arrow/.test(aria) || /menu|more|expand|options|dropdown|chevron|arrow/.test(text);
+    });
+
+    if (toggleBtn) {
+        toggleBtn.click();
+        return { ok: true, reason: 'toggle-button' };
+    }
+
+    const rect = runBtn.getBoundingClientRect();
+    if (!rect || rect.width <= 0 || rect.height <= 0) {
+        return { ok: false, error: 'run button rect unavailable' };
+    }
+    const clickX = rect.right - Math.max(4, Math.min(12, rect.width * 0.15));
+    const clickY = rect.top + rect.height / 2;
+    for (const type of ['pointerdown', 'mousedown', 'mouseup', 'click']) {
+        runBtn.dispatchEvent(new MouseEvent(type, {
+            bubbles: true, cancelable: true, view: window, clientX: clickX, clientY: clickY
+        }));
+    }
+    return { ok: true, reason: 'run-right-edge' };
 })()`;
 
 /**
@@ -233,6 +297,50 @@ export class RunCommandDetector {
     async runButton(buttonText?: string): Promise<boolean> {
         const text = buttonText ?? this.lastDetectedInfo?.runText ?? 'Run';
         return this.clickButton(text);
+    }
+
+    /**
+     * Click Allow for Workspace. Expand dropdown if necessary.
+     */
+    async allowWorkspaceButton(): Promise<boolean> {
+        const directCandidates = ['Allow for Workspace', 'Allow Workspace', 'Allow for this Workspace'];
+        
+        for (const candidate of directCandidates) {
+            if (await this.clickButton(candidate)) return true;
+        }
+
+        const expanded = await this.runEvaluateScript(EXPAND_RUN_COMMAND_MENU_SCRIPT);
+        if (expanded?.ok !== true) return false;
+
+        for (let i = 0; i < 5; i++) {
+            for (const candidate of directCandidates) {
+                if (await this.clickButton(candidate)) return true;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 120));
+        }
+        return false;
+    }
+
+    /**
+     * Click Allow Globally. Expand dropdown if necessary.
+     */
+    async allowGloballyButton(): Promise<boolean> {
+        const directCandidates = ['Allow Globally', 'Always Allow Globally'];
+        
+        for (const candidate of directCandidates) {
+            if (await this.clickButton(candidate)) return true;
+        }
+
+        const expanded = await this.runEvaluateScript(EXPAND_RUN_COMMAND_MENU_SCRIPT);
+        if (expanded?.ok !== true) return false;
+
+        for (let i = 0; i < 5; i++) {
+            for (const candidate of directCandidates) {
+                if (await this.clickButton(candidate)) return true;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 120));
+        }
+        return false;
     }
 
     /**
