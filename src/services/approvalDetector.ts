@@ -30,16 +30,18 @@ export interface ApprovalDetectorOptions {
  * Detects allow/deny button pairs and extracts descriptions with fallbacks.
  */
 const DETECT_APPROVAL_SCRIPT = `(() => {
-    const ALLOW_ONCE_PATTERNS = ['allow once', 'allow one time', '今回のみ許可', '1回のみ許可', '一度許可'];
+    const ALLOW_ONCE_PATTERNS = ['allow once', 'allow one time', 'approve once', 'approve one time', '今回のみ許可', '1回のみ許可', '一度許可'];
     const ALWAYS_ALLOW_PATTERNS = [
         'allow this conversation',
         'allow this chat',
         'always allow',
+        'approve this conversation',
+        'always approve',
         '常に許可',
         'この会話を許可',
     ];
-    const ALLOW_PATTERNS = ['allow', 'permit', '許可', '承認', '確認'];
-    const DENY_PATTERNS = ['deny', '拒否', 'decline'];
+    const ALLOW_PATTERNS = ['allow', 'permit', 'approve', 'accept', '許可', '承認', '確認'];
+    const DENY_PATTERNS = ['deny', '拒否', 'decline', 'reject', 'cancel'];
 
     const normalize = (text) => (text || '').toLowerCase().replace(/\\s+/g, ' ').trim();
 
@@ -124,11 +126,13 @@ const DETECT_APPROVAL_SCRIPT = `(() => {
  * Press the toggle on the right side of Allow Once to expand the Always Allow dropdown.
  */
 const EXPAND_ALWAYS_ALLOW_MENU_SCRIPT = `(() => {
-    const ALLOW_ONCE_PATTERNS = ['allow once', 'allow one time', '今回のみ許可', '1回のみ許可', '一度許可'];
+    const ALLOW_ONCE_PATTERNS = ['allow once', 'allow one time', 'approve once', 'approve one time', '今回のみ許可', '1回のみ許可', '一度許可'];
     const ALWAYS_ALLOW_PATTERNS = [
         'allow this conversation',
         'allow this chat',
         'always allow',
+        'approve this conversation',
+        'always approve',
         '常に許可',
         'この会話を許可',
     ];

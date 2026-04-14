@@ -37,6 +37,8 @@ const ERROR_POPUP_DISMISS_ACTION_PREFIX = 'error_popup_dismiss_action';
 const ERROR_POPUP_COPY_DEBUG_ACTION_PREFIX = 'error_popup_copy_debug_action';
 const ERROR_POPUP_RETRY_ACTION_PREFIX = 'error_popup_retry_action';
 const RUN_COMMAND_RUN_ACTION_PREFIX = 'run_command_run_action';
+const RUN_COMMAND_ALLOW_WORKSPACE_ACTION_PREFIX = 'run_command_allow_workspace_action';
+const RUN_COMMAND_ALLOW_GLOBALLY_ACTION_PREFIX = 'run_command_allow_globally_action';
 const RUN_COMMAND_REJECT_ACTION_PREFIX = 'run_command_reject_action';
 
 // ---------------------------------------------------------------------------
@@ -240,6 +242,8 @@ export function buildRunCommandNotification(opts: {
     const components: readonly ComponentRow[] = [
         buttonRow(
             button(customId(RUN_COMMAND_RUN_ACTION_PREFIX, projectName, channelId), 'Run', 'success'),
+            button(customId(RUN_COMMAND_ALLOW_WORKSPACE_ACTION_PREFIX, projectName, channelId), 'Allow Workspace', 'primary'),
+            button(customId(RUN_COMMAND_ALLOW_GLOBALLY_ACTION_PREFIX, projectName, channelId), 'Allow Globally', 'primary'),
             button(customId(RUN_COMMAND_REJECT_ACTION_PREFIX, projectName, channelId), 'Reject', 'danger'),
         ),
     ];
