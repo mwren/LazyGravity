@@ -43,6 +43,8 @@ const ERROR_POPUP_DISMISS_ACTION_PREFIX = 'error_popup_dismiss_action';
 const ERROR_POPUP_COPY_DEBUG_ACTION_PREFIX = 'error_popup_copy_debug_action';
 const ERROR_POPUP_RETRY_ACTION_PREFIX = 'error_popup_retry_action';
 const RUN_COMMAND_RUN_ACTION_PREFIX = 'run_command_run_action';
+const RUN_COMMAND_ALLOW_WORKSPACE_ACTION_PREFIX = 'run_command_allow_workspace_action';
+const RUN_COMMAND_ALLOW_GLOBALLY_ACTION_PREFIX = 'run_command_allow_globally_action';
 const RUN_COMMAND_REJECT_ACTION_PREFIX = 'run_command_reject_action';
 
 function normalizeSessionTitle(title: string): string {
@@ -241,22 +243,32 @@ export function parseErrorPopupCustomId(customId: string): { action: 'dismiss' |
 }
 
 export function buildRunCommandCustomId(
-    action: 'run' | 'reject',
+    action: 'run' | 'allow_workspace' | 'allow_globally' | 'reject',
     projectName: string,
     channelId?: string,
 ): string {
     const prefix = action === 'run'
         ? RUN_COMMAND_RUN_ACTION_PREFIX
-        : RUN_COMMAND_REJECT_ACTION_PREFIX;
+        : action === 'allow_workspace'
+            ? RUN_COMMAND_ALLOW_WORKSPACE_ACTION_PREFIX
+            : action === 'allow_globally'
+                ? RUN_COMMAND_ALLOW_GLOBALLY_ACTION_PREFIX
+                : RUN_COMMAND_REJECT_ACTION_PREFIX;
     if (channelId && channelId.trim().length > 0) {
         return `${prefix}:${projectName}:${channelId}`;
     }
     return `${prefix}:${projectName}`;
 }
 
-export function parseRunCommandCustomId(customId: string): { action: 'run' | 'reject'; projectName: string | null; channelId: string | null } | null {
+export function parseRunCommandCustomId(customId: string): { action: 'run' | 'allow_workspace' | 'allow_globally' | 'reject'; projectName: string | null; channelId: string | null } | null {
     if (customId === RUN_COMMAND_RUN_ACTION_PREFIX) {
         return { action: 'run', projectName: null, channelId: null };
+    }
+    if (customId === RUN_COMMAND_ALLOW_WORKSPACE_ACTION_PREFIX) {
+        return { action: 'allow_workspace', projectName: null, channelId: null };
+    }
+    if (customId === RUN_COMMAND_ALLOW_GLOBALLY_ACTION_PREFIX) {
+        return { action: 'allow_globally', projectName: null, channelId: null };
     }
     if (customId === RUN_COMMAND_REJECT_ACTION_PREFIX) {
         return { action: 'reject', projectName: null, channelId: null };
@@ -265,6 +277,16 @@ export function parseRunCommandCustomId(customId: string): { action: 'run' | 're
         const rest = customId.substring(`${RUN_COMMAND_RUN_ACTION_PREFIX}:`.length);
         const [projectName, channelId] = rest.split(':');
         return { action: 'run', projectName: projectName || null, channelId: channelId || null };
+    }
+    if (customId.startsWith(`${RUN_COMMAND_ALLOW_WORKSPACE_ACTION_PREFIX}:`)) {
+        const rest = customId.substring(`${RUN_COMMAND_ALLOW_WORKSPACE_ACTION_PREFIX}:`.length);
+        const [projectName, channelId] = rest.split(':');
+        return { action: 'allow_workspace', projectName: projectName || null, channelId: channelId || null };
+    }
+    if (customId.startsWith(`${RUN_COMMAND_ALLOW_GLOBALLY_ACTION_PREFIX}:`)) {
+        const rest = customId.substring(`${RUN_COMMAND_ALLOW_GLOBALLY_ACTION_PREFIX}:`.length);
+        const [projectName, channelId] = rest.split(':');
+        return { action: 'allow_globally', projectName: projectName || null, channelId: channelId || null };
     }
     if (customId.startsWith(`${RUN_COMMAND_REJECT_ACTION_PREFIX}:`)) {
         const rest = customId.substring(`${RUN_COMMAND_REJECT_ACTION_PREFIX}:`.length);

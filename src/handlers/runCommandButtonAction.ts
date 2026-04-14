@@ -64,6 +64,12 @@ export function createRunCommandButtonAction(
                 if (action === 'run') {
                     success = await detector.runButton();
                     actionLabel = 'Run';
+                } else if (action === 'allow_workspace') {
+                    success = await detector.allowWorkspaceButton();
+                    actionLabel = 'Allow Workspace';
+                } else if (action === 'allow_globally') {
+                    success = await detector.allowGloballyButton();
+                    actionLabel = 'Allow Globally';
                 } else {
                     success = await detector.rejectButton();
                     actionLabel = 'Reject';
