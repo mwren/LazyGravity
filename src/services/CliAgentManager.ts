@@ -85,7 +85,9 @@ export class CliAgentManager extends EventEmitter {
         let text = this.buffers.get(channelId) || '';
         
         // Resolve terminal backspaces
-        while (text.includes('\b')) {
+        let previousText = '';
+        while (text.includes('\b') && text !== previousText) {
+            previousText = text;
             text = text.replace(/[^\b]\b/g, '');
         }
         text = text.replace(/\b/g, '');
@@ -95,7 +97,6 @@ export class CliAgentManager extends EventEmitter {
         text = text.replace(/^.*\r/gm, '');
         
         // Clean up common CLI artifacts before sending to Discord
-        text = text.replace(/^(claude>|>>>|\$|❯)\s*/gm, ''); // Strip prompt prefixes
         text = text.replace(/─{10,}/g, '──────────'); // Shorten massive horizontal rules
         text = text.trim();
 
