@@ -1092,13 +1092,44 @@ export const startBot = async (cliLogLevel?: LogLevel) => {
         logger.info(`Ready! Logged in as ${readyClient.user.tag} | extractionMode=${config.extractionMode}`);
 
         // Register CLI agent message event
-        cliAgentManager.on('agentMessage', async (channelId: string, text: string) => {
+        cliAgentManager.on('agentMessage', async (channelId: string, userId: string, text: string) => {
             try {
                 const targetChannel = await client.channels.fetch(channelId);
                 if (targetChannel && targetChannel.isTextBased()) {
-                    const chunks = splitPlainText(text);
-                    for (const chunk of chunks) {
-                        await (targetChannel as TextChannel).send(chunk);
+                    const outputFormat = userPrefRepo.getOutputFormat(userId) ?? 'embed';
+                    const userVoice = userPrefRepo.getVoice(userId) ?? 'shimmer';
+
+                    const formattedText = formatForDiscord(text);
+
+                    if (outputFormat === 'audio') {
+                        // Plain text fallback
+                        const chunks = splitPlainText(formattedText);
+                        for (const chunk of chunks) {
+                            await (targetChannel as TextChannel).send(chunk);
+                        }
+
+                        try {
+                            const audioBuffer = await generateAudioStream(text, userVoice);
+                            if (audioBuffer) {
+                                await (targetChannel as TextChannel).send({ files: [{ attachment: audioBuffer, name: 'agent_response.mp3' }] });
+                            }
+                        } catch (err) {
+                            logger.error('[cliAgentManager] Audio synthesis failed:', err);
+                        }
+                    } else if (outputFormat === 'plain') {
+                        const chunks = splitPlainText(formattedText);
+                        for (const chunk of chunks) {
+                            await (targetChannel as TextChannel).send(chunk);
+                        }
+                    } else {
+                        // embed
+                        const chunks = splitForEmbedDescription(formattedText, 3500);
+                        for (const chunk of chunks) {
+                            const embed = new EmbedBuilder()
+                                .setColor(0x3498db)
+                                .setDescription(chunk);
+                            await (targetChannel as TextChannel).send({ embeds: [embed] });
+                        }
                     }
                 }
             } catch (err) {
@@ -1954,7 +1985,7 @@ async function handleSlashInteraction(
                 }
 
                 // 4. Spawn the agent
-                const started = cliAgentManager.spawnAgent(newChannelId, agentType, [], cwd);
+                const started = cliAgentManager.spawnAgent(newChannelId, interaction.user.id, agentType, [], cwd);
                 if (started) {
                     await interaction.editReply({ content: `✅ Started CLI agent **${agentType}** in <#${newChannelId}>.\nAll messages sent to that channel will be forwarded to the agent process.` });
                 } else {

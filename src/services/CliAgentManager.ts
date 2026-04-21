@@ -2,8 +2,13 @@ import * as pty from 'node-pty';
 import { EventEmitter } from 'events';
 import { logger } from '../utils/logger';
 
+interface AgentState {
+    child: pty.IPty;
+    userId: string;
+}
+
 export class CliAgentManager extends EventEmitter {
-    private agents = new Map<string, pty.IPty>();
+    private agents = new Map<string, AgentState>();
     private buffers = new Map<string, string>();
     private debounceTimers = new Map<string, NodeJS.Timeout>();
     private readonly DEBOUNCE_MS = 1000;
@@ -12,7 +17,7 @@ export class CliAgentManager extends EventEmitter {
         super();
     }
 
-    public spawnAgent(channelId: string, agentCommand: string, args: string[] = [], cwd?: string): boolean {
+    public spawnAgent(channelId: string, userId: string, agentCommand: string, args: string[] = [], cwd?: string): boolean {
         if (this.agents.has(channelId)) {
             logger.warn(`[CliAgentManager] Agent already running for channel ${channelId}`);
             return false;
@@ -29,7 +34,7 @@ export class CliAgentManager extends EventEmitter {
                 env: process.env as Record<string, string>
             });
 
-            this.agents.set(channelId, child);
+            this.agents.set(channelId, { child, userId });
             this.buffers.set(channelId, '');
 
             child.onData((data: string) => {
@@ -71,21 +76,22 @@ export class CliAgentManager extends EventEmitter {
 
     private flushOutput(channelId: string) {
         const text = this.buffers.get(channelId)?.trim();
-        if (text) {
-            this.emit('agentMessage', channelId, text);
+        const agent = this.agents.get(channelId);
+        if (text && agent) {
+            this.emit('agentMessage', channelId, agent.userId, text);
             this.buffers.set(channelId, '');
         }
     }
 
     public sendInput(channelId: string, text: string): boolean {
-        const child = this.agents.get(channelId);
-        if (!child) {
+        const agent = this.agents.get(channelId);
+        if (!agent) {
             return false;
         }
 
         try {
             logger.debug(`[CliAgentManager] Sending input to agent in channel ${channelId}`);
-            child.write(text + '\r');
+            agent.child.write(text + '\r');
             return true;
         } catch (err) {
             logger.error(`[CliAgentManager] Error writing to agent stdin:`, err);
@@ -94,10 +100,10 @@ export class CliAgentManager extends EventEmitter {
     }
 
     public killAgent(channelId: string): boolean {
-        const child = this.agents.get(channelId);
-        if (child) {
+        const agent = this.agents.get(channelId);
+        if (agent) {
             logger.info(`[CliAgentManager] Killing agent for channel ${channelId}`);
-            child.kill();
+            agent.child.kill();
             this.cleanup(channelId);
             return true;
         }
