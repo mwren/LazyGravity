@@ -44,6 +44,7 @@ const ERROR_POPUP_COPY_DEBUG_ACTION_PREFIX = 'error_popup_copy_debug_action';
 const ERROR_POPUP_RETRY_ACTION_PREFIX = 'error_popup_retry_action';
 const RUN_COMMAND_RUN_ACTION_PREFIX = 'run_command_run_action';
 const RUN_COMMAND_REJECT_ACTION_PREFIX = 'run_command_reject_action';
+const FILE_OPEN_ACTION_PREFIX = 'file_open_action';
 
 function normalizeSessionTitle(title: string): string {
     return title.trim().toLowerCase();
@@ -270,6 +271,18 @@ export function parseRunCommandCustomId(customId: string): { action: 'run' | 're
         const rest = customId.substring(`${RUN_COMMAND_REJECT_ACTION_PREFIX}:`.length);
         const [projectName, channelId] = rest.split(':');
         return { action: 'reject', projectName: projectName || null, channelId: channelId || null };
+    }
+    return null;
+}
+
+export function buildFileOpenCustomId(id: string): string {
+    return `${FILE_OPEN_ACTION_PREFIX}:${id}`;
+}
+
+export function parseFileOpenCustomId(customId: string): { id: string } | null {
+    if (customId.startsWith(`${FILE_OPEN_ACTION_PREFIX}:`)) {
+        const id = customId.substring(`${FILE_OPEN_ACTION_PREFIX}:`.length);
+        return { id: id || '' };
     }
     return null;
 }

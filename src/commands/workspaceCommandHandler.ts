@@ -305,8 +305,13 @@ export class WorkspaceCommandHandler {
      */
     public getWorkspaceForChannel(channelId: string): string | undefined {
         const binding = this.bindingRepo.findByChannelId(channelId);
-        if (!binding) return undefined;
-        return this.workspaceService.getWorkspacePath(binding.workspacePath);
+        if (binding) return this.workspaceService.getWorkspacePath(binding.workspacePath);
+        
+        // Fallback for legacy channels that only have a session record
+        const session = this.chatSessionRepo.findByChannelId(channelId);
+        if (session) return this.workspaceService.getWorkspacePath(session.workspacePath);
+        
+        return undefined;
     }
 
     /**
@@ -314,7 +319,12 @@ export class WorkspaceCommandHandler {
      */
     public getProjectNameForChannel(channelId: string): string | undefined {
         const binding = this.bindingRepo.findByChannelId(channelId);
-        if (!binding) return undefined;
-        return binding.workspacePath;
+        if (binding) return binding.workspacePath;
+        
+        // Fallback for legacy channels that only have a session record
+        const session = this.chatSessionRepo.findByChannelId(channelId);
+        if (session) return session.workspacePath;
+        
+        return undefined;
     }
 }

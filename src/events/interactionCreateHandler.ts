@@ -44,6 +44,9 @@ import { ModelService } from '../services/modelService';
 import { AutoAcceptService } from '../services/autoAcceptService';
 import { JoinCommandHandler } from '../commands/joinCommandHandler';
 import { isSessionSelectId } from '../ui/sessionPickerUi';
+import { FileLinkRepository } from '../database/fileLinkRepository';
+import { createFileOpenButtonAction } from '../handlers/fileOpenButtonAction';
+import { wrapDiscordButton } from '../platform/discord/wrappers';
 
 export interface InteractionCreateHandlerDeps {
     config: { allowedUserIds: string[] };
@@ -58,7 +61,7 @@ export interface InteractionCreateHandlerDeps {
     sendModeUI: (target: { editReply: (opts: any) => Promise<any> }, modeService: ModeService, deps?: import('../ui/modeUi').ModeUiDeps) => Promise<void>;
     sendModelsUI: (
         target: { editReply: (opts: any) => Promise<any> },
-        deps: { getCurrentCdp: () => CdpService | null; fetchQuota: () => Promise<any[]> },
+        deps: import('../ui/modelsUi').ModelsUiDeps,
     ) => Promise<void>;
     sendAutoAcceptUI: (
         target: { editReply: (opts: any) => Promise<any> },
@@ -85,6 +88,7 @@ export interface InteractionCreateHandlerDeps {
     handleTemplateUse?: (interaction: ButtonInteraction, templateId: number) => Promise<void>;
     joinHandler?: JoinCommandHandler;
     userPrefRepo?: UserPreferenceRepository;
+    fileLinkRepo?: FileLinkRepository;
 }
 
 export function createInteractionCreateHandler(deps: InteractionCreateHandlerDeps) {
@@ -532,7 +536,8 @@ export function createInteractionCreateHandler(deps: InteractionCreateHandlerDep
 
                 if (interaction.customId === 'model_set_default_btn') {
                     await interaction.deferUpdate();
-                    const cdp = deps.getCurrentCdp(deps.bridge, deps.wsHandler.getProjectNameForChannel(interaction.channelId));
+                    const wsPath = deps.wsHandler.getWorkspaceForChannel(interaction.channelId);
+                    const cdp = wsPath ? await deps.bridge.pool.getOrConnect(wsPath) : deps.getCurrentCdp(deps.bridge, deps.wsHandler.getProjectNameForChannel(interaction.channelId));
                     if (!cdp) {
                         await interaction.followUp({ content: 'Not connected to CDP.', flags: MessageFlags.Ephemeral });
                         return;
@@ -549,7 +554,7 @@ export function createInteractionCreateHandler(deps: InteractionCreateHandlerDep
                     await deps.sendModelsUI(
                         { editReply: async (data: any) => await interaction.editReply(data) },
                         {
-                            getCurrentCdp: () => deps.getCurrentCdp(deps.bridge, deps.wsHandler.getProjectNameForChannel(interaction.channelId)),
+                            getOrConnectCdp: async () => cdp,
                             fetchQuota: async () => deps.bridge.quota.fetchQuota(),
                         },
                     );
@@ -563,10 +568,11 @@ export function createInteractionCreateHandler(deps: InteractionCreateHandlerDep
                     if (deps.userPrefRepo) {
                         deps.userPrefRepo.setDefaultModel(interaction.user.id, null);
                     }
+                    const wsPath = deps.wsHandler.getWorkspaceForChannel(interaction.channelId);
                     await deps.sendModelsUI(
                         { editReply: async (data: any) => await interaction.editReply(data) },
                         {
-                            getCurrentCdp: () => deps.getCurrentCdp(deps.bridge, deps.wsHandler.getProjectNameForChannel(interaction.channelId)),
+                            getOrConnectCdp: async () => wsPath ? await deps.bridge.pool.getOrConnect(wsPath) : deps.getCurrentCdp(deps.bridge, deps.wsHandler.getProjectNameForChannel(interaction.channelId)),
                             fetchQuota: async () => deps.bridge.quota.fetchQuota(),
                         },
                     );
@@ -576,10 +582,11 @@ export function createInteractionCreateHandler(deps: InteractionCreateHandlerDep
 
                 if (interaction.customId === 'model_refresh_btn') {
                     await interaction.deferUpdate();
+                    const wsPath = deps.wsHandler.getWorkspaceForChannel(interaction.channelId);
                     await deps.sendModelsUI(
                         { editReply: async (data: any) => await interaction.editReply(data) },
                         {
-                            getCurrentCdp: () => deps.getCurrentCdp(deps.bridge, deps.wsHandler.getProjectNameForChannel(interaction.channelId)),
+                            getOrConnectCdp: async () => wsPath ? await deps.bridge.pool.getOrConnect(wsPath) : deps.getCurrentCdp(deps.bridge, deps.wsHandler.getProjectNameForChannel(interaction.channelId)),
                             fetchQuota: async () => deps.bridge.quota.fetchQuota(),
                         },
                     );
@@ -590,7 +597,8 @@ export function createInteractionCreateHandler(deps: InteractionCreateHandlerDep
                     await interaction.deferUpdate();
 
                     const modelName = interaction.customId.replace('model_btn_', '');
-                    const cdp = deps.getCurrentCdp(deps.bridge, deps.wsHandler.getProjectNameForChannel(interaction.channelId));
+                    const wsPath = deps.wsHandler.getWorkspaceForChannel(interaction.channelId);
+                    const cdp = wsPath ? await deps.bridge.pool.getOrConnect(wsPath) : deps.getCurrentCdp(deps.bridge, deps.wsHandler.getProjectNameForChannel(interaction.channelId));
 
                     if (!cdp) {
                         await interaction.followUp({ content: 'Not connected to CDP.', flags: MessageFlags.Ephemeral });
@@ -605,7 +613,7 @@ export function createInteractionCreateHandler(deps: InteractionCreateHandlerDep
                         await deps.sendModelsUI(
                             { editReply: async (data: any) => await interaction.editReply(data) },
                             {
-                                getCurrentCdp: () => deps.getCurrentCdp(deps.bridge, deps.wsHandler.getProjectNameForChannel(interaction.channelId)),
+                                getOrConnectCdp: async () => cdp,
                                 fetchQuota: async () => deps.bridge.quota.fetchQuota(),
                             },
                         );
@@ -678,6 +686,15 @@ export function createInteractionCreateHandler(deps: InteractionCreateHandlerDep
                         await deps.handleTemplateUse(interaction, templateId);
                     }
                     return;
+                }
+
+                if (deps.fileLinkRepo) {
+                    const fileOpenActionDef = createFileOpenButtonAction({ fileLinkRepo: deps.fileLinkRepo });
+                    const fileOpenParams = fileOpenActionDef.match(interaction.customId);
+                    if (fileOpenParams) {
+                        await fileOpenActionDef.execute(wrapDiscordButton(interaction), fileOpenParams);
+                        return;
+                    }
                 }
             } catch (error) {
                 logger.error('Error during button interaction handling:', error);

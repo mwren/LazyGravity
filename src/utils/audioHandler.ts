@@ -1,7 +1,7 @@
 import { logger } from './logger';
 import { fetch as undiciFetch } from 'undici';
 
-const KOKORO_API_URL = process.env.TTS_API_URL || 'http://matt-windows.mattwren.net:8880/v1/audio/speech';
+const KOKORO_API_URL = process.env.TTS_API_URL || 'http://darrowby:8880/v1/audio/speech';
 const DEFAULT_VOICE = 'af_bella'; // High quality American Female voice
 
 /**

@@ -110,20 +110,29 @@ const EXTRACT_PLAN_CONTENT_SCRIPT = `(() => {
     };
 
     // Primary selector: plan content container
-    const contentContainer = document.querySelector(
-        'div.relative.pl-4.pr-4.py-1, div.relative.pl-4.pr-4'
-    );
-    if (contentContainer) {
-        const textEl = contentContainer.querySelector('.leading-relaxed.select-text');
-        if (textEl) {
-            return htmlToMd(textEl);
+    const containers = Array.from(document.querySelectorAll(
+        'div.relative.pl-4.pr-4.py-1, div.relative.pl-4.pr-4, .antigravity-artifact'
+    ));
+    if (containers.length > 0) {
+        for (let i = containers.length - 1; i >= 0; i--) {
+            const container = containers[i];
+            const textEl = container.querySelector('.leading-relaxed.select-text, .prose, .markdown-body, pre code');
+            
+            // Try specific text element first, fallback to the whole container
+            const targetEl = textEl || container;
+            const md = htmlToMd(targetEl);
+            
+            // If we found significant markdown, assume it's the plan
+            if (md && md.length > 100) {
+                return md;
+            }
         }
     }
 
-    // Fallback: any leading-relaxed.select-text with significant content
-    const allLeading = Array.from(document.querySelectorAll('.leading-relaxed.select-text'));
-    for (const el of allLeading) {
-        const md = htmlToMd(el);
+    // Fallback: any text component with significant content
+    const allLeading = Array.from(document.querySelectorAll('.leading-relaxed.select-text, .prose, .markdown-body'));
+    for (let i = allLeading.length - 1; i >= 0; i--) {
+        const md = htmlToMd(allLeading[i]);
         if (md.length > 100) {
             return md;
         }

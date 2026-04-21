@@ -581,15 +581,16 @@ export class CdpService extends EventEmitter {
         // `open -a Antigravity` may open as workspace, resulting in title "Untitled (Workspace)".
         // CLI --new-window opens as folder, immediately reflecting directory name in title.
         const antigravityCli = getAntigravityCliPath();
+        const basePort = this.ports[0] ?? 9222;
 
-        logger.debug(`[CdpService] Launching Antigravity: ${antigravityCli} --new-window ${workspacePath}`);
+        logger.debug(`[CdpService] Launching Antigravity: ${antigravityCli} --remote-debugging-port=${basePort} --new-window ${workspacePath}`);
         try {
-            await this.runCommand(antigravityCli, ['--new-window', workspacePath]);
+            await this.runCommand(antigravityCli, [`--remote-debugging-port=${basePort}`, '--new-window', workspacePath]);
         } catch (error: any) {
             // Fall back to open -a if CLI not found (macOS only)
             logger.warn(`[CdpService] CLI launch failed, falling back to open -a (if macOS): ${error?.message || String(error)}`);
             if (process.platform === 'darwin') {
-                await this.runCommand('open', ['-a', 'Antigravity', workspacePath]);
+                await this.runCommand('open', ['-a', 'Antigravity', workspacePath, '--args', `--remote-debugging-port=${basePort}`]);
             } else {
                 throw error;
             }
@@ -1594,19 +1595,59 @@ export class CdpService extends EventEmitter {
         }
     }
 
-    /**
-     * Dynamically retrieve the list of available models from the Antigravity UI.
-     */
     async getUiModels(): Promise<string[]> {
         if (!this.isConnectedFlag || !this.ws) {
             throw new Error('Not connected to CDP.');
         }
 
         const expression = `(async () => {
-            return Array.from(document.querySelectorAll('div.cursor-pointer'))
-                .map(e => ({text: (e.textContent || '').trim().replace(/New$/, ''), class: e.className}))
-                .filter(e => e.class.includes('px-2 py-1 flex items-center justify-between') || e.text.includes('Gemini') || e.text.includes('GPT') || e.text.includes('Claude'))
-                .map(e => e.text);
+            const brands = ['gemini', 'claude', 'gpt', 'o1', 'o3', 'deepseek'];
+            const candidates = Array.from(document.querySelectorAll('button, [role="combobox"], div[role="button"]'));
+            const modelBtn = candidates.find(el => {
+                const text = (el.textContent || '').trim().toLowerCase();
+                return brands.some(b => text.includes(b)) && !!el.querySelector('svg[class*="chevron"]');
+            }) || candidates.find(el => {
+                const text = (el.textContent || '').trim().toLowerCase();
+                return brands.some(b => text.includes(b)) && text.length < 50;
+            });
+            
+            let closedIt = false;
+            if (modelBtn) {
+                if (modelBtn.getAttribute('aria-expanded') !== 'true') {
+                    modelBtn.click();
+                    await new Promise(r => setTimeout(r, 1000));
+                    closedIt = true;
+                }
+            }
+
+            let optionsNodes = Array.from(document.querySelectorAll('div.cursor-pointer, [role="option"], [data-radix-collection-item], [role="menuitem"]'));
+            const listbox = document.querySelector('[role="listbox"]') || document.querySelector('[data-radix-popper-content-wrapper]:not([style*="display: none"])');
+            if (listbox) {
+                optionsNodes = Array.from(listbox.querySelectorAll('[role="option"], div.cursor-pointer, [data-radix-collection-item]'));
+            }
+
+            const blacklist = ['customization', 'mcp servers', 'export', 'media', 'mentions', 'workflows', 'clear chat', 'settings', 'profile', 'logout'];
+            const options = optionsNodes
+                .filter(el => {
+                    const text = (el.textContent || '').trim().toLowerCase();
+                    if (el === modelBtn || (modelBtn && modelBtn.contains(el))) return false;
+                    if (blacklist.some(b => text === b || text.includes(b))) return false;
+                    return true;
+                })
+                .map(e => ({text: (e.textContent || '').trim().replace(/New$/, ''), class: e.className || '', el: e}))
+                .filter(e => e.class.includes('px-2') || e.class.includes('py-1') || e.text.includes('Gemini') || e.text.includes('GPT') || e.text.includes('Claude') || e.text.includes('DeepSeek'))
+                .map(e => e.text.trim())
+                .filter(t => t.length > 2 && t.length < 60 && t !== (modelBtn ? modelBtn.textContent?.trim() : ''));
+
+            if (closedIt && modelBtn) {
+                document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+                await new Promise(r => setTimeout(r, 100));
+            }
+            
+            if (options.length > 0) {
+                return Array.from(new Set(options));
+            }
+            return [];
         })()`;
 
         try {
@@ -1620,13 +1661,11 @@ export class CdpService extends EventEmitter {
 
             const res = await this.call('Runtime.evaluate', callParams);
             const value = res?.result?.value;
-            if (Array.isArray(value) && value.length > 0) {
-                // remove duplicates
-                return Array.from(new Set(value));
+            if (Array.isArray(value)) {
+                return value;
             }
             return [];
-        } catch (error: any) {
-            logger.error('Failed to get UI models:', error);
+        } catch (error) {
             return [];
         }
     }
@@ -1639,9 +1678,25 @@ export class CdpService extends EventEmitter {
             return null;
         }
         const expression = `(() => {
-            return Array.from(document.querySelectorAll('div.cursor-pointer'))
-                .find(e => e.className.includes('px-2 py-1 flex items-center justify-between') && e.className.includes('bg-gray-500/20'))
-                ?.textContent?.trim().replace(/New$/, '') || null;
+            const brands = ['gemini', 'claude', 'gpt', 'o1', 'o3', 'deepseek'];
+            // Prioritize buttons/comboboxes that have a chevron or are explicitly comboboxes
+            const candidates = Array.from(document.querySelectorAll('button, [role="combobox"], div[role="button"]'));
+            
+            let bestMatch = candidates.find(el => {
+                const text = (el.textContent || '').trim().toLowerCase();
+                if (!brands.some(b => text.includes(b))) return false;
+                // Check if it has a chevron-down SVG inside
+                return !!el.querySelector('svg[class*="chevron"]');
+            });
+            
+            if (!bestMatch) {
+                bestMatch = candidates.find(el => {
+                    const text = (el.textContent || '').trim().toLowerCase();
+                    return brands.some(b => text.includes(b)) && text.length < 50;
+                });
+            }
+            
+            return bestMatch ? bestMatch.textContent?.trim().replace(/New$/, '').trim() : null;
         })()`;
         try {
             const contextId = this.getPrimaryContextId();
@@ -1656,72 +1711,73 @@ export class CdpService extends EventEmitter {
     }
 
     /**
-     * Operate Antigravity UI model dropdown to switch to the specified model.
-     * (Step 9: Model/mode switching UI sync)
-     *
-     * @param modelName Model name to set (e.g., 'gpt-4o', 'claude-3-opus')
+     * Changes the current AI model via UI selection heuristics.
      */
-    async setUiModel(modelName: string): Promise<UiSyncResult> {
+    async setUiModel(modelName: string): Promise<{ok: boolean, model?: string, verified?: boolean, error?: string}> {
         if (!this.isConnectedFlag || !this.ws) {
-            await this.reconnectOnDemand();
+            return { ok: false, error: 'Not connected to CDP.' };
         }
 
-        // DOM manipulation script: based on actual Antigravity UI DOM structure
-        // Model list uses div.cursor-pointer elements with class 'px-2 py-1 flex items-center justify-between'
-        // Currently selected has 'bg-gray-500/20', others have 'hover:bg-gray-500/10'
-        // textContent may have "New" suffix
         const safeModel = JSON.stringify(modelName);
         const expression = `(async () => {
             const targetModel = ${safeModel}.toLowerCase();
+            const brands = ['gemini', 'claude', 'gpt', 'o1', 'o3', 'deepseek'];
             
-            // Radix UI support: find and click the combobox triggering the model selection
-            const comboboxes = Array.from(document.querySelectorAll('button[role="combobox"]'));
-            let clickedOption = false;
-            
-            for (const box of comboboxes) {
-                box.click();
-                await new Promise(r => setTimeout(r, 200)); 
-                
-                const options = Array.from(document.querySelectorAll('[role="option"], [data-radix-collection-item], div.cursor-pointer'));
-                const targetItem = options.find(el => {
-                    const text = (el.textContent || '').trim().toLowerCase().replace(/new$/, '').trim();
-                    return text === targetModel || text.includes(targetModel) || targetModel.includes(text);
-                });
-                
-                if (targetItem && targetItem !== box) {
-                    targetItem.click();
-                    clickedOption = true;
-                    await new Promise(r => setTimeout(r, 200));
-                    return { ok: true, model: targetModel, verified: true };
-                }
-                
-                box.click(); // Close if incorrect combobox
-                await new Promise(r => setTimeout(r, 100));
-            }
-
-            if (clickedOption) return;
-
-            // Legacy static DOM fallback
-            const modelItems = Array.from(document.querySelectorAll('div.cursor-pointer'))
-                .filter(e => e.className && typeof e.className === 'string' && e.className.includes('px-2 py-1'));
-            
-            if (modelItems.length === 0) {
-                return { ok: false, error: 'Model list not found. The dropdown may not be open.' };
-            }
-            
-            const targetItem = modelItems.find(el => {
-                const text = (el.textContent || '').trim().toLowerCase().replace(/new$/, '').trim();
-                return text === targetModel || text.toLowerCase() === targetModel.toLowerCase();
+            const candidates = Array.from(document.querySelectorAll('button, [role="combobox"], div[role="button"]'));
+            const modelBtn = candidates.find(el => {
+                const text = (el.textContent || '').trim().toLowerCase();
+                return brands.some(b => text.includes(b)) && !!el.querySelector('svg[class*="chevron"]');
+            }) || candidates.find(el => {
+                const text = (el.textContent || '').trim().toLowerCase();
+                return brands.some(b => text.includes(b)) && text.length < 50;
             });
             
-            if (!targetItem) {
-                const available = modelItems.map(el => (el.textContent || '').trim().replace(/new$/, '').trim()).join(', ');
-                return { ok: false, error: 'Model "' + targetModel + '" not found. Available: ' + available };
+            if (!modelBtn) {
+                return { ok: false, error: 'Could not find the model selection button in the UI.' };
             }
             
-            targetItem.click();
-            await new Promise(r => setTimeout(r, 500));
-            return { ok: true, model: targetModel, verified: true };
+            if (modelBtn.getAttribute('aria-expanded') !== 'true') {
+                modelBtn.click();
+            }
+            
+            await new Promise(r => setTimeout(r, 1000));
+            
+            let optionsNodes = Array.from(document.querySelectorAll('[role="option"], [data-radix-collection-item], div.cursor-pointer, [role="menuitem"]'));
+            const listbox = document.querySelector('[role="listbox"]') || document.querySelector('[data-radix-popper-content-wrapper]:not([style*="display: none"])');
+            if (listbox) {
+                optionsNodes = Array.from(listbox.querySelectorAll('[role="option"], [data-radix-collection-item], div.cursor-pointer'));
+            }
+
+            const blacklist = ['customization', 'mcp servers', 'export', 'media', 'mentions', 'workflows', 'clear chat', 'settings', 'profile', 'logout'];
+            const validOptionsNodes = optionsNodes.filter(el => {
+                const text = (el.textContent || '').trim().toLowerCase();
+                if (el === modelBtn || (modelBtn && modelBtn.contains(el))) return false;
+                if (blacklist.some(b => text === b || text.includes(b))) return false;
+                return true;
+            });
+            
+            const targetItem = validOptionsNodes.find(el => {
+                const text = (el.textContent || '').trim().toLowerCase().replace(/new$/, '').trim();
+                return text === targetModel || text.includes(targetModel) || targetModel.includes(text);
+            });
+            
+            if (targetItem) {
+                targetItem.click();
+                await new Promise(r => setTimeout(r, 200));
+                
+                document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+                return { ok: true, model: targetModel, verified: true };
+            }
+            
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+            await new Promise(r => setTimeout(r, 100));
+            
+            const available = validOptionsNodes
+                .map(el => (el.textContent || '').trim().replace(/new$/, '').trim())
+                .filter(t => t.length > 2 && t.length < 60 && t !== modelBtn.textContent?.trim() && !blacklist.some(b => t.toLowerCase() === b || t.toLowerCase().includes(b)))
+                .join(', ');
+                
+            return { ok: false, error: 'Model "' + targetModel + '" not found. Available: ' + available };
         })()`;
 
         try {

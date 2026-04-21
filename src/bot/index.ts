@@ -8,8 +8,15 @@ import {
     AttachmentBuilder, ButtonBuilder, ButtonStyle,
     ActionRowBuilder, EmbedBuilder,
     StringSelectMenuBuilder, MessageFlags,
+    Partials,
 } from 'discord.js';
 import Database from 'better-sqlite3';
+import fs from 'fs';
+import path from 'path';
+import { exec } from 'child_process';
+import util from 'util';
+
+const execAsync = util.promisify(exec);
 
 import { wrapDiscordChannel } from '../platform/discord/wrappers';
 import type { PlatformType } from '../platform/types';
@@ -25,6 +32,7 @@ import { applyDefaultModel } from '../services/defaultModelApplicator';
 import { TemplateRepository } from '../database/templateRepository';
 import { WorkspaceBindingRepository } from '../database/workspaceBindingRepository';
 import { ChatSessionRepository } from '../database/chatSessionRepository';
+import { FileLinkRepository } from '../database/fileLinkRepository';
 import { WorkspaceService } from '../services/workspaceService';
 import {
     WorkspaceCommandHandler,
@@ -64,6 +72,7 @@ import {
     parseErrorPopupCustomId,
     parsePlanningCustomId,
     parseRunCommandCustomId,
+    buildFileOpenCustomId,
     registerApprovalSessionChannel,
     registerApprovalWorkspaceChannel,
 } from '../services/cdpBridgeManager';
@@ -103,6 +112,7 @@ import { createApprovalButtonAction } from '../handlers/approvalButtonAction';
 import { createPlanningButtonAction } from '../handlers/planningButtonAction';
 import { createErrorPopupButtonAction } from '../handlers/errorPopupButtonAction';
 import { createRunCommandButtonAction } from '../handlers/runCommandButtonAction';
+import { createFileOpenButtonAction } from '../handlers/fileOpenButtonAction';
 import { createModelButtonAction } from '../handlers/modelButtonAction';
 import { createAutoAcceptButtonAction } from '../handlers/autoAcceptButtonAction';
 import { createTemplateButtonAction } from '../handlers/templateButtonAction';
@@ -180,6 +190,8 @@ async function sendPromptToAntigravity(
         chatSessionRepo: ChatSessionRepository;
         channelManager: ChannelManager;
         titleGenerator: TitleGeneratorService;
+        workspaceService: WorkspaceService;
+        fileLinkRepo?: FileLinkRepository;
         userPrefRepo?: UserPreferenceRepository;
         onFullCompletion?: () => void;
         extractionMode?: ExtractionMode;
@@ -423,6 +435,7 @@ async function sendPromptToAntigravity(
             source?: string;
             expectedVersion?: number;
             skipWhenFinalized?: boolean;
+            components?: any[];
         },
     ): Promise<void> => enqueueResponse(async () => {
         if (opts?.skipWhenFinalized && isFinalized) return;
@@ -434,17 +447,24 @@ async function sendPromptToAntigravity(
             const plainChunks = splitPlainText(
                 `**${title}**\n${formatted}\n_${footerText}_`,
             );
-            const renderKey = `${title}|plain|${footerText}|${plainChunks.join('\n<<<PAGE_BREAK>>>\n')}`;
+            const renderKey = `${title}|plain|${footerText}|${opts?.components?.length ? 'C' : 'N'}|${plainChunks.join('\n<<<PAGE_BREAK>>>\n')}`;
             if (renderKey === lastLiveResponseKey && liveResponseMessages.length > 0) return;
             lastLiveResponseKey = renderKey;
 
             for (let i = 0; i < plainChunks.length; i++) {
+                const messageOpts: any = { content: plainChunks[i] };
+                if (i === plainChunks.length - 1 && opts?.components?.length) {
+                    messageOpts.components = opts.components;
+                } else {
+                    messageOpts.components = [];
+                }
+                
                 if (!liveResponseMessages[i]) {
-                    liveResponseMessages[i] = await channel.send({ content: plainChunks[i] }).catch(() => null);
+                    liveResponseMessages[i] = await channel.send(messageOpts).catch(() => null);
                     continue;
                 }
-                await liveResponseMessages[i].edit({ content: plainChunks[i] }).catch(async () => {
-                    liveResponseMessages[i] = await channel.send({ content: plainChunks[i] }).catch(() => null);
+                await liveResponseMessages[i].edit(messageOpts).catch(async () => {
+                    liveResponseMessages[i] = await channel.send(messageOpts).catch(() => null);
                 });
             }
             while (liveResponseMessages.length > plainChunks.length) {
@@ -456,7 +476,7 @@ async function sendPromptToAntigravity(
         }
 
         const descriptions = buildLiveResponseDescriptions(rawText);
-        const renderKey = `${title}|${color}|${footerText}|${descriptions.join('\n<<<PAGE_BREAK>>>\n')}`;
+        const renderKey = `${title}|${color}|${footerText}|${opts?.components?.length ? 'C' : 'N'}|${descriptions.join('\n<<<PAGE_BREAK>>>\n')}`;
         if (renderKey === lastLiveResponseKey && liveResponseMessages.length > 0) {
             return;
         }
@@ -470,13 +490,20 @@ async function sendPromptToAntigravity(
                 .setFooter({ text: footerText })
                 .setTimestamp();
 
+            const messageOpts: any = { embeds: [embed] };
+            if (i === descriptions.length - 1 && opts?.components?.length) {
+                messageOpts.components = opts.components;
+            } else {
+                messageOpts.components = [];
+            }
+
             if (!liveResponseMessages[i]) {
-                liveResponseMessages[i] = await channel.send({ embeds: [embed] }).catch(() => null);
+                liveResponseMessages[i] = await channel.send(messageOpts).catch(() => null);
                 continue;
             }
 
-            await liveResponseMessages[i].edit({ embeds: [embed] }).catch(async () => {
-                liveResponseMessages[i] = await channel.send({ embeds: [embed] }).catch(() => null);
+            await liveResponseMessages[i].edit(messageOpts).catch(async () => {
+                liveResponseMessages[i] = await channel.send(messageOpts).catch(() => null);
             });
         }
 
@@ -752,6 +779,59 @@ async function sendPromptToAntigravity(
 
                     liveResponseUpdateVersion += 1;
                     const responseVersion = liveResponseUpdateVersion;
+
+                    let fileComponents: any[] | undefined = undefined;
+                    if (finalOutputText && options && options.fileLinkRepo) {
+                        try {
+                            const session = options.chatSessionRepo.findByChannelId(message.channelId);
+                            const workspacePath = session?.workspacePath;
+                            if (workspacePath) {
+                                const simpleRegex = /(?:^|\s|\[|'|")([a-zA-Z0-9_\-\.\/]+\.[a-zA-Z0-9]+)\b/g;
+                                const potentialFiles = new Set<string>();
+                                let match;
+                                while ((match = simpleRegex.exec(finalOutputText)) !== null) {
+                                    potentialFiles.add(match[1]);
+                                }
+
+                                const validLinks: { name: string; urlId: string }[] = [];
+                                for (const relPath of potentialFiles) {
+                                    try {
+                                        if (relPath.startsWith('http')) continue;
+                                        const absPath = path.resolve(workspacePath, relPath);
+                                        if (!absPath.startsWith(path.resolve(workspacePath))) continue;
+
+                                        if (fs.existsSync(absPath) && fs.statSync(absPath).isFile()) {
+                                            try {
+                                                await execAsync(`git check-ignore -q "${absPath}"`, { cwd: workspacePath });
+                                                continue; // Exit code 0 means git-ignored, skip
+                                            } catch (err: any) {
+                                                if (err.code !== 1) { /* other error, ignore or log */ }
+                                            }
+
+                                            const urlId = options.fileLinkRepo.create(workspacePath, absPath);
+                                            validLinks.push({ name: path.basename(absPath), urlId });
+                                        }
+                                    } catch (e) { /* skip */ }
+                                }
+
+                                if (validLinks.length > 0) {
+                                    const row = new ActionRowBuilder<ButtonBuilder>();
+                                    for (const link of validLinks.slice(0, 5)) {
+                                        row.addComponents(
+                                            new ButtonBuilder()
+                                                .setCustomId(buildFileOpenCustomId(link.urlId))
+                                                .setLabel(`Open ${link.name}`)
+                                                .setStyle(ButtonStyle.Secondary)
+                                        );
+                                    }
+                                    fileComponents = [row];
+                                }
+                            }
+                        } catch (e) {
+                            logger.error('[FileButtons] Failed to attach buttons:', e);
+                        }
+                    }
+
                     if (outputFormat === 'audio' && finalOutputText && finalOutputText.trim().length > 0) {
                         await upsertLiveResponseEmbeds(
                             `${PHASE_ICONS.complete} Text Snapshot`,
@@ -761,6 +841,7 @@ async function sendPromptToAntigravity(
                             {
                                 source: 'complete',
                                 expectedVersion: responseVersion,
+                                components: fileComponents,
                             },
                         );
                         if (channel) {
@@ -788,6 +869,7 @@ async function sendPromptToAntigravity(
                             {
                                 source: 'complete',
                                 expectedVersion: responseVersion,
+                                components: fileComponents,
                             },
                         );
                     } else {
@@ -939,6 +1021,7 @@ export const startBot = async (cliLogLevel?: LogLevel) => {
     const modelService = new ModelService();
     const templateRepo = new TemplateRepository(db);
     const userPrefRepo = new UserPreferenceRepository(db);
+    const fileLinkRepo = new FileLinkRepository(db);
 
     // Eagerly load default model from DB (single-user bot optimization)
     try {
@@ -993,6 +1076,12 @@ export const startBot = async (cliLogLevel?: LogLevel) => {
             GatewayIntentBits.Guilds,
             GatewayIntentBits.GuildMessages,
             GatewayIntentBits.MessageContent,
+            GatewayIntentBits.GuildMessageReactions,
+        ],
+        partials: [
+            Partials.Message,
+            Partials.Reaction,
+            Partials.User,
         ]
     });
 
@@ -1165,6 +1254,8 @@ export const startBot = async (cliLogLevel?: LogLevel) => {
                         chatSessionRepo,
                         channelManager,
                         titleGenerator,
+                        workspaceService,
+                        fileLinkRepo,
                         userPrefRepo,
                         extractionMode: config.extractionMode,
                     },
@@ -1172,6 +1263,39 @@ export const startBot = async (cliLogLevel?: LogLevel) => {
             }
         },
     }));
+
+    // [Reaction handler for TTS]
+    client.on(Events.MessageReactionAdd, async (reaction, user) => {
+        if (user.bot) return;
+        if (!config.allowedUserIds.includes(user.id)) return;
+        
+        if (reaction.emoji.name === '🎧') {
+            try {
+                if (reaction.partial) await reaction.fetch();
+                if (reaction.message.partial) await reaction.message.fetch();
+
+                const content = reaction.message.content || (reaction.message.embeds?.[0]?.description);
+                if (!content || !content.trim()) return;
+
+                const voiceId = userPrefRepo.getVoice(user.id);
+                // Inform user it's generating
+                const typingMsg = await reaction.message.reply(`🎧 Synthesizing audio for <@${user.id}>...`);
+                
+                const audioBuffer = await generateAudioStream(content, voiceId);
+                
+                if (audioBuffer) {
+                    await typingMsg.edit({
+                        content: `🎧 Audio version for <@${user.id}>`,
+                        files: [{ attachment: audioBuffer, name: 'antigravity_tts.mp3' }]
+                    });
+                } else {
+                    await typingMsg.edit({ content: `⚠️ Failed to synthesize audio for <@${user.id}>.` });
+                }
+            } catch (err) {
+                logger.error('Failed to generate TTS from reaction:', err);
+            }
+        }
+    });
 
     // [Text message handler]
     client.on(Events.MessageCreate, createMessageCreateHandler({
@@ -1185,6 +1309,8 @@ export const startBot = async (cliLogLevel?: LogLevel) => {
         chatSessionRepo,
         channelManager,
         titleGenerator,
+        workspaceService,
+        fileLinkRepo,
         client,
         sendPromptToAntigravity: async (
             _bridge,
@@ -1288,6 +1414,7 @@ export const startBot = async (cliLogLevel?: LogLevel) => {
                     createModelButtonAction({ bridge, fetchQuota: () => bridge.quota.fetchQuota(), modelService, userPrefRepo }),
                     createAutoAcceptButtonAction({ autoAcceptService: bridge.autoAccept }),
                     createTemplateButtonAction({ bridge, templateRepo }),
+                    createFileOpenButtonAction({ fileLinkRepo }),
                 ],
             });
 
@@ -1395,6 +1522,7 @@ async function autoRenameChannel(
     titleGenerator: TitleGeneratorService,
     channelManager: ChannelManager,
     cdp?: CdpService,
+    injectedPrompt?: string,
 ): Promise<void> {
     const session = chatSessionRepo.findByChannelId(message.channelId);
     if (!session || session.isRenamed) return;
@@ -1403,7 +1531,8 @@ async function autoRenameChannel(
     if (!guild) return;
 
     try {
-        const title = await titleGenerator.generateTitle(message.content, cdp);
+        const textToUse = injectedPrompt ?? message.content;
+        const title = await titleGenerator.generateTitle(textToUse, cdp);
         const newName = `${session.sessionNumber}-${title}`;
         await channelManager.renameChannel(guild, message.channelId, newName);
         chatSessionRepo.updateDisplayName(message.channelId, title);
@@ -1436,6 +1565,14 @@ async function handleSlashInteraction(
     const getChannelAwareCdp = () => {
         const wsName = wsHandler.getProjectNameForChannel(interaction.channelId);
         return getCurrentCdp(bridge, wsName);
+    };
+    
+    const getChannelAwareCdpAsync = async () => {
+        const wsPath = wsHandler.getWorkspaceForChannel(interaction.channelId);
+        if (wsPath) {
+            return await bridge.pool.getOrConnect(wsPath);
+        }
+        return getChannelAwareCdp();
     };
 
     switch (commandName) {
@@ -1522,11 +1659,11 @@ async function handleSlashInteraction(
             const modelName = interaction.options.getString('name');
             if (!modelName) {
                 await sendModelsUI(interaction, {
-                    getCurrentCdp: () => getChannelAwareCdp(),
+                    getOrConnectCdp: getChannelAwareCdpAsync,
                     fetchQuota: async () => bridge.quota.fetchQuota(),
                 });
             } else {
-                const cdp = getChannelAwareCdp();
+                const cdp = await getChannelAwareCdpAsync();
                 if (!cdp) {
                     await interaction.editReply({ content: 'Not connected to CDP.' });
                     break;
