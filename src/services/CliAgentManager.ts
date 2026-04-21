@@ -58,7 +58,12 @@ export class CliAgentManager extends EventEmitter {
         // Robust regex to strip ALL terminal ANSI codes, control characters, cursor movements, etc.
         // eslint-disable-next-line no-control-regex
         const ansiRegex = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
-        const stripped = dataStr.replace(ansiRegex, '');
+        // Regex to strip OSC (Operating System Command) sequences (like terminal titles and hyperlinks)
+        // eslint-disable-next-line no-control-regex
+        const oscRegex = /\x1B\][^\x07\x1B]*[\x07\x1B]\\?/g;
+        
+        let stripped = dataStr.replace(ansiRegex, '');
+        stripped = stripped.replace(oscRegex, '');
         
         const currentBuffer = this.buffers.get(channelId) || '';
         this.buffers.set(channelId, currentBuffer + stripped);
@@ -79,10 +84,24 @@ export class CliAgentManager extends EventEmitter {
     private flushOutput(channelId: string) {
         let text = this.buffers.get(channelId) || '';
         
+        // Resolve terminal backspaces
+        while (text.includes('\b')) {
+            text = text.replace(/[^\b]\b/g, '');
+        }
+        text = text.replace(/\b/g, '');
+
+        // Resolve terminal carriage returns (overwriting lines)
+        text = text.replace(/\r\n/g, '\n');
+        text = text.replace(/^.*\r/gm, '');
+        
         // Clean up common CLI artifacts before sending to Discord
-        text = text.replace(/^(claude>|>>>|\$)\s*/gm, ''); // Strip prompt prefixes
-        text = text.replace(/\r/g, ''); // Strip stray carriage returns that mess up markdown
+        text = text.replace(/^(claude>|>>>|\$|❯)\s*/gm, ''); // Strip prompt prefixes
+        text = text.replace(/─{10,}/g, '──────────'); // Shorten massive horizontal rules
         text = text.trim();
+
+        // Strip remaining non-printable control characters that break discord (except newlines/tabs)
+        // eslint-disable-next-line no-control-regex
+        text = text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
 
         const agent = this.agents.get(channelId);
         if (text && agent) {
