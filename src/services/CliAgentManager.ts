@@ -1,9 +1,9 @@
-import { ChildProcess, spawn } from 'child_process';
+import * as pty from 'node-pty';
 import { EventEmitter } from 'events';
 import { logger } from '../utils/logger';
 
 export class CliAgentManager extends EventEmitter {
-    private agents = new Map<string, ChildProcess>();
+    private agents = new Map<string, pty.IPty>();
     private buffers = new Map<string, string>();
     private debounceTimers = new Map<string, NodeJS.Timeout>();
     private readonly DEBOUNCE_MS = 1000;
@@ -21,34 +21,25 @@ export class CliAgentManager extends EventEmitter {
         logger.info(`[CliAgentManager] Spawning agent ${agentCommand} for channel ${channelId}${cwd ? ` (cwd: ${cwd})` : ''}`);
         
         try {
-            const child = spawn(agentCommand, args, {
-                stdio: ['pipe', 'pipe', 'pipe'],
-                shell: true,
-                cwd: cwd
+            const child = pty.spawn(agentCommand, args, {
+                name: 'xterm-color',
+                cols: 80,
+                rows: 30,
+                cwd: cwd || process.cwd(),
+                env: process.env as Record<string, string>
             });
 
             this.agents.set(channelId, child);
             this.buffers.set(channelId, '');
 
-            child.stdout?.on('data', (data: Buffer) => {
-                this.handleOutput(channelId, data.toString());
+            child.onData((data: string) => {
+                this.handleOutput(channelId, data);
             });
 
-            child.stderr?.on('data', (data: Buffer) => {
-                logger.warn(`[CliAgentManager:${channelId}] STDERR: ${data.toString()}`);
-                // Could choose to send stderr to Discord as well, but might be noisy.
-            });
-
-            child.on('close', (code) => {
-                logger.info(`[CliAgentManager] Agent for channel ${channelId} exited with code ${code}`);
+            child.onExit(({ exitCode, signal }) => {
+                logger.info(`[CliAgentManager] Agent for channel ${channelId} exited with code ${exitCode}`);
                 this.cleanup(channelId);
-                this.emit('agentExited', channelId, code);
-            });
-
-            child.on('error', (err) => {
-                logger.error(`[CliAgentManager] Failed to start agent for channel ${channelId}:`, err);
-                this.cleanup(channelId);
-                this.emit('agentError', channelId, err);
+                this.emit('agentExited', channelId, exitCode);
             });
 
             return true;
@@ -88,13 +79,13 @@ export class CliAgentManager extends EventEmitter {
 
     public sendInput(channelId: string, text: string): boolean {
         const child = this.agents.get(channelId);
-        if (!child || !child.stdin) {
+        if (!child) {
             return false;
         }
 
         try {
             logger.debug(`[CliAgentManager] Sending input to agent in channel ${channelId}`);
-            child.stdin.write(text + '\n');
+            child.write(text + '\r');
             return true;
         } catch (err) {
             logger.error(`[CliAgentManager] Error writing to agent stdin:`, err);
@@ -106,7 +97,7 @@ export class CliAgentManager extends EventEmitter {
         const child = this.agents.get(channelId);
         if (child) {
             logger.info(`[CliAgentManager] Killing agent for channel ${channelId}`);
-            child.kill('SIGKILL');
+            child.kill();
             this.cleanup(channelId);
             return true;
         }

@@ -225,6 +225,12 @@ export function createMessageCreateHandler(deps: MessageCreateHandlerDeps) {
             return; // Stop further processing by LazyGravity
         }
 
+        // If it's an agent channel but the agent process has died, don't let it fall through to Antigravity
+        if ('name' in message.channel && message.channel.name?.startsWith('agent-')) {
+            await message.reply('⚠️ The CLI agent process for this channel has exited or crashed. Start a new one with `/agent start`.').catch(() => {});
+            return;
+        }
+
         const hasImageAttachments = Array.from(message.attachments.values())
             .some((attachment) => isImageAttachment(attachment.contentType, attachment.name));
         if (message.content.trim() || hasImageAttachments) {
