@@ -1,5 +1,7 @@
 import * as pty from 'node-pty';
 import { EventEmitter } from 'events';
+import * as fs from 'fs';
+import * as path from 'path';
 import { logger } from '../utils/logger';
 
 interface AgentState {
@@ -55,6 +57,15 @@ export class CliAgentManager extends EventEmitter {
     }
 
     private handleOutput(channelId: string, dataStr: string) {
+        // Log raw data to filesystem for debugging
+        try {
+            const logDir = path.join(process.cwd(), 'logs');
+            if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
+            fs.appendFileSync(path.join(logDir, `agent-${channelId}-raw.log`), `\n--- CHUNK ---\n${JSON.stringify(dataStr)}\n`);
+        } catch (e) {
+            // ignore
+        }
+
         // Robust regex to strip ALL terminal ANSI codes, control characters, cursor movements, etc.
         // eslint-disable-next-line no-control-regex
         const ansiRegex = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
