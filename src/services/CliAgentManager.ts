@@ -28,7 +28,7 @@ export class CliAgentManager extends EventEmitter {
         try {
             const child = pty.spawn(agentCommand, args, {
                 name: 'xterm-color',
-                cols: 80,
+                cols: 1000,
                 rows: 30,
                 cwd: cwd || process.cwd(),
                 env: process.env as Record<string, string>
@@ -55,8 +55,10 @@ export class CliAgentManager extends EventEmitter {
     }
 
     private handleOutput(channelId: string, dataStr: string) {
-        // Strip ANSI codes if needed (basic regex)
-        const stripped = dataStr.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
+        // Robust regex to strip ALL terminal ANSI codes, control characters, cursor movements, etc.
+        // eslint-disable-next-line no-control-regex
+        const ansiRegex = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
+        const stripped = dataStr.replace(ansiRegex, '');
         
         const currentBuffer = this.buffers.get(channelId) || '';
         this.buffers.set(channelId, currentBuffer + stripped);
@@ -75,7 +77,13 @@ export class CliAgentManager extends EventEmitter {
     }
 
     private flushOutput(channelId: string) {
-        const text = this.buffers.get(channelId)?.trim();
+        let text = this.buffers.get(channelId) || '';
+        
+        // Clean up common CLI artifacts before sending to Discord
+        text = text.replace(/^(claude>|>>>|\$)\s*/gm, ''); // Strip prompt prefixes
+        text = text.replace(/\r/g, ''); // Strip stray carriage returns that mess up markdown
+        text = text.trim();
+
         const agent = this.agents.get(channelId);
         if (text && agent) {
             this.emit('agentMessage', channelId, agent.userId, text);
