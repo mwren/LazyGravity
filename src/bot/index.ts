@@ -1096,7 +1096,10 @@ export const startBot = async (cliLogLevel?: LogLevel) => {
             try {
                 const targetChannel = await client.channels.fetch(channelId);
                 if (targetChannel && targetChannel.isTextBased()) {
-                    await (targetChannel as TextChannel).send(text);
+                    const chunks = splitPlainText(text);
+                    for (const chunk of chunks) {
+                        await (targetChannel as TextChannel).send(chunk);
+                    }
                 }
             } catch (err) {
                 logger.error(`[cliAgentManager] Failed to send message to Discord channel ${channelId}:`, err);
