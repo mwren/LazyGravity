@@ -46,6 +46,7 @@ import {
     CLEANUP_DELETE_BTN,
     CLEANUP_CANCEL_BTN,
 } from '../commands/cleanupCommandHandler';
+import { cliAgentManager } from '../services/CliAgentManager';
 import { ChannelManager } from '../services/channelManager';
 import { TitleGeneratorService } from '../services/titleGeneratorService';
 import { JoinCommandHandler } from '../commands/joinCommandHandler';
@@ -1090,6 +1091,18 @@ export const startBot = async (cliLogLevel?: LogLevel) => {
     client.once(Events.ClientReady, async (readyClient) => {
         logger.info(`Ready! Logged in as ${readyClient.user.tag} | extractionMode=${config.extractionMode}`);
 
+        // Register CLI agent message event
+        cliAgentManager.on('agentMessage', async (channelId: string, text: string) => {
+            try {
+                const targetChannel = await client.channels.fetch(channelId);
+                if (targetChannel && targetChannel.isTextBased()) {
+                    await targetChannel.send(text);
+                }
+            } catch (err) {
+                logger.error(`[cliAgentManager] Failed to send message to Discord channel ${channelId}:`, err);
+            }
+        });
+
         try {
             await registerSlashCommands(discordToken, discordClientId, config.guildId);
         } catch (error) {
@@ -1892,6 +1905,27 @@ async function handleSlashInteraction(
 
         case 'cleanup': {
             await cleanupHandler.handleCleanup(interaction);
+            break;
+        }
+
+        case 'agent': {
+            const sub = interaction.options.getSubcommand(true);
+            if (sub === 'start') {
+                const agentType = interaction.options.getString('type', true);
+                const started = cliAgentManager.spawnAgent(interaction.channelId, agentType, []);
+                if (started) {
+                    await interaction.editReply({ content: `✅ Started CLI agent **${agentType}** in this channel.\nAll messages sent here will be forwarded to the agent process.` });
+                } else {
+                    await interaction.editReply({ content: `⚠️ Failed to start CLI agent, or one is already running in this channel.` });
+                }
+            } else if (sub === 'stop') {
+                const killed = cliAgentManager.killAgent(interaction.channelId);
+                if (killed) {
+                    await interaction.editReply({ content: `⏹️ Stopped CLI agent in this channel.` });
+                } else {
+                    await interaction.editReply({ content: `⚠️ No active CLI agent found in this channel.` });
+                }
+            }
             break;
         }
 

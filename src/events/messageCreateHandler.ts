@@ -31,6 +31,7 @@ import {
     isImageAttachment as isImageAttachmentFn,
 } from '../utils/imageHandler';
 import { logger } from '../utils/logger';
+import { cliAgentManager } from '../services/CliAgentManager';
 
 export interface MessageCreateHandlerDeps {
     config: { allowedUserIds: string[]; extractionMode?: import('../utils/config').ExtractionMode; responseTimeoutMs?: number };
@@ -213,6 +214,15 @@ export function createMessageCreateHandler(deps: MessageCreateHandlerDeps) {
                 }
             }
             return;
+        }
+
+        // --- CLI Agent Intercept ---
+        if (cliAgentManager.hasAgent(message.channelId)) {
+            const success = cliAgentManager.sendInput(message.channelId, message.content);
+            if (!success) {
+                logger.warn(`Failed to send input to agent in channel ${message.channelId}`);
+            }
+            return; // Stop further processing by LazyGravity
         }
 
         const hasImageAttachments = Array.from(message.attachments.values())

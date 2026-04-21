@@ -161,6 +161,27 @@ const outputCommand = new SlashCommandBuilder()
             .setRequired(false)
     );
 
+/** /agent command definition */
+const agentCommand = new SlashCommandBuilder()
+    .setName('agent')
+    .setDescription(t('Manage CLI agents for Discord channels'))
+    .addSubcommand((sub) =>
+        sub
+            .setName('start')
+            .setDescription(t('Start a new CLI agent session in this channel'))
+            .addStringOption((option) =>
+                option
+                    .setName('type')
+                    .setDescription(t('Type of CLI (e.g. claude, gemini, bash)'))
+                    .setRequired(true)
+            )
+    )
+    .addSubcommand((sub) =>
+        sub
+            .setName('stop')
+            .setDescription(t('Stop the CLI agent session in this channel'))
+    );
+
 
 /** /logs command definition */
 const logsCommand = new SlashCommandBuilder()
@@ -209,6 +230,7 @@ export const slashCommands = [
     joinCommand,
     mirrorCommand,
     outputCommand,
+    agentCommand,
     pingCommand,
     logsCommand,
 ];
