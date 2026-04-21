@@ -92,9 +92,8 @@ export class CliAgentManager extends EventEmitter {
         }
         text = text.replace(/\b/g, '');
 
-        // Resolve terminal carriage returns (overwriting lines)
-        text = text.replace(/\r\n/g, '\n');
-        text = text.replace(/^.*\r/gm, '');
+        // Strip terminal carriage returns to prevent markdown breaks without destroying text
+        text = text.replace(/\r/g, '');
         
         // Clean up common CLI artifacts before sending to Discord
         text = text.replace(/─{10,}/g, '──────────'); // Shorten massive horizontal rules
