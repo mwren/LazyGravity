@@ -12,18 +12,19 @@ export class CliAgentManager extends EventEmitter {
         super();
     }
 
-    public spawnAgent(channelId: string, agentCommand: string, args: string[] = []): boolean {
+    public spawnAgent(channelId: string, agentCommand: string, args: string[] = [], cwd?: string): boolean {
         if (this.agents.has(channelId)) {
             logger.warn(`[CliAgentManager] Agent already running for channel ${channelId}`);
             return false;
         }
 
-        logger.info(`[CliAgentManager] Spawning agent ${agentCommand} for channel ${channelId}`);
+        logger.info(`[CliAgentManager] Spawning agent ${agentCommand} for channel ${channelId}${cwd ? ` (cwd: ${cwd})` : ''}`);
         
         try {
             const child = spawn(agentCommand, args, {
                 stdio: ['pipe', 'pipe', 'pipe'],
-                shell: true
+                shell: true,
+                cwd: cwd
             });
 
             this.agents.set(channelId, child);

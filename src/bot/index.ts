@@ -8,7 +8,7 @@ import {
     AttachmentBuilder, ButtonBuilder, ButtonStyle,
     ActionRowBuilder, EmbedBuilder,
     StringSelectMenuBuilder, MessageFlags,
-    Partials,
+    Partials, TextChannel,
 } from 'discord.js';
 import Database from 'better-sqlite3';
 import fs from 'fs';
@@ -1096,7 +1096,7 @@ export const startBot = async (cliLogLevel?: LogLevel) => {
             try {
                 const targetChannel = await client.channels.fetch(channelId);
                 if (targetChannel && targetChannel.isTextBased()) {
-                    await targetChannel.send(text);
+                    await (targetChannel as TextChannel).send(text);
                 }
             } catch (err) {
                 logger.error(`[cliAgentManager] Failed to send message to Discord channel ${channelId}:`, err);
@@ -1912,11 +1912,50 @@ async function handleSlashInteraction(
             const sub = interaction.options.getSubcommand(true);
             if (sub === 'start') {
                 const agentType = interaction.options.getString('type', true);
-                const started = cliAgentManager.spawnAgent(interaction.channelId, agentType, []);
-                if (started) {
-                    await interaction.editReply({ content: `✅ Started CLI agent **${agentType}** in this channel.\nAll messages sent here will be forwarded to the agent process.` });
+                const guild = interaction.guild;
+                
+                if (!guild) {
+                    await interaction.editReply({ content: `⚠️ This command must be used in a server.` });
+                    break;
+                }
+
+                // 1. Determine CWD and Category
+                const wsPath = wsHandler.getWorkspaceForChannel(interaction.channelId);
+                const channelManager = new ChannelManager();
+                let categoryId: string | undefined = undefined;
+                let cwd: string | undefined = undefined;
+
+                if (wsPath) {
+                    const ensureCat = await channelManager.ensureCategory(guild, wsPath);
+                    categoryId = ensureCat.categoryId;
+                    cwd = wsPath;
                 } else {
-                    await interaction.editReply({ content: `⚠️ Failed to start CLI agent, or one is already running in this channel.` });
+                    cwd = process.cwd(); // Fallback to bot's root directory if not in a project
+                }
+
+                // 2. Generate new channel name with random identifier
+                const randomId = Math.random().toString(36).substring(2, 6);
+                const newChannelName = `agent-${agentType}-${randomId}`;
+
+                // 3. Create the new channel
+                let newChannelId: string;
+                if (categoryId) {
+                    const res = await channelManager.createSessionChannel(guild, categoryId, newChannelName);
+                    newChannelId = res.channelId;
+                } else {
+                    const newChannel = await guild.channels.create({
+                        name: newChannelName,
+                        type: 0 // ChannelType.GuildText
+                    });
+                    newChannelId = newChannel.id;
+                }
+
+                // 4. Spawn the agent
+                const started = cliAgentManager.spawnAgent(newChannelId, agentType, [], cwd);
+                if (started) {
+                    await interaction.editReply({ content: `✅ Started CLI agent **${agentType}** in <#${newChannelId}>.\nAll messages sent to that channel will be forwarded to the agent process.` });
+                } else {
+                    await interaction.editReply({ content: `⚠️ Failed to start CLI agent.` });
                 }
             } else if (sub === 'stop') {
                 const killed = cliAgentManager.killAgent(interaction.channelId);
