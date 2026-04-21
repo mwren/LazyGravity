@@ -12,7 +12,8 @@ import {
 } from '../platform/richContentBuilder';
 
 export interface ModelsUiDeps {
-    getCurrentCdp: () => CdpService | null;
+    getOrConnectCdp?: () => Promise<CdpService | null>;
+    getCurrentCdp?: () => CdpService | null;
     fetchQuota: () => Promise<any[]>;
 }
 
@@ -96,7 +97,17 @@ export function buildModelsPayload(
     const rows: ComponentRow[] = [];
 
     for (const mName of models.slice(0, 24)) {
-        const safeName = mName.length > 80 ? mName.substring(0, 77) + '...' : mName;
+        const normalize = (s: string) => s.toLowerCase().replace(/[\s\-_]/g, '');
+        const nName = normalize(mName);
+        const q = quotaData.find(q => {
+            const nLabel = normalize(q.label);
+            const nModel = normalize(q.model || '');
+            return nLabel === nName || nModel === nName
+                || nName.includes(nLabel) || nLabel.includes(nName)
+                || (nModel && (nName.includes(nModel) || nModel.includes(nName)));
+        });
+        const displayLabel = q?.label || mName;
+        const safeName = displayLabel.length > 80 ? displayLabel.substring(0, 77) + '...' : displayLabel;
         const isDefault = defaultModel != null && mName.toLowerCase() === defaultModel.toLowerCase();
         const prefix = mName === currentModel ? '✓ ' : '';
         const suffix = isDefault ? ' ⭐' : '';
@@ -148,9 +159,16 @@ export async function buildModelsUI(
     cdp: CdpService,
     fetchQuota: () => Promise<any[]>,
 ): Promise<ModelsUiPayload | null> {
-    const models = await cdp.getUiModels();
+    let models = await cdp.getUiModels();
     const currentModel = await cdp.getCurrentModel();
     const quotaData = await fetchQuota();
+
+    if (models.length === 0 && quotaData && quotaData.length > 0) {
+        models = quotaData.map(q => q.model || (q.label && q.label.toLowerCase().includes('gemini') ? q.label : '')).filter(Boolean);
+        if (models.length === 0) {
+            models = quotaData.map(q => q.model || q.label).filter(Boolean);
+        }
+    }
 
     if (models.length === 0) return null;
 
@@ -209,7 +227,17 @@ export async function buildModelsUI(
             rows.push(currentRow);
             currentRow = new ActionRowBuilder<ButtonBuilder>();
         }
-        const safeName = mName.length > 80 ? mName.substring(0, 77) + '...' : mName;
+        const normalize = (s: string) => s.toLowerCase().replace(/[\s\-_]/g, '');
+        const nName = normalize(mName);
+        const q = quotaData.find(q => {
+            const nLabel = normalize(q.label);
+            const nModel = normalize(q.model || '');
+            return nLabel === nName || nModel === nName
+                || nName.includes(nLabel) || nLabel.includes(nName)
+                || (nModel && (nName.includes(nModel) || nModel.includes(nName)));
+        });
+        const displayLabel = q?.label || mName;
+        const safeName = displayLabel.length > 80 ? displayLabel.substring(0, 77) + '...' : displayLabel;
         currentRow.addComponents(new ButtonBuilder()
             .setCustomId(`model_btn_${mName}`)
             .setLabel(safeName)
@@ -247,7 +275,7 @@ export async function sendModelsUI(
     target: { editReply: (opts: any) => Promise<any> },
     deps: ModelsUiDeps,
 ): Promise<void> {
-    const cdp = deps.getCurrentCdp();
+    const cdp = deps.getOrConnectCdp ? await deps.getOrConnectCdp() : (deps.getCurrentCdp ? deps.getCurrentCdp() : null);
     if (!cdp) {
         await target.editReply({ content: 'Not connected to CDP.' });
         return;

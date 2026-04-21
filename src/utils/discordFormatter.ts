@@ -75,7 +75,7 @@ function isUiChromeLine(line: string): boolean {
 
 /** Regex matching file references like src/bot/index.ts:54 or tests/utils/config.ts.
  *  Consumes one trailing space so the replacement `\`ref\`` doesn't leave a double space. */
-const FILE_REF_REGEX = /(?<![`/\\])(\b[a-zA-Z][\w.-]*(?:\/[\w.-]+)+(?::\d+(?:-\d+)?)?)\s?(?!`)/g;
+const FILE_REF_REGEX = /(?<![`/\\.:])(\b[a-zA-Z][\w.-]*(?:\/[\w.-]+)+(?::\d+(?:-\d+)?)?)\s?(?!`)/g;
 
 /**
  * Format text for Discord Embed display.

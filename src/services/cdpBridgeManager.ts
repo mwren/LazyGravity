@@ -44,6 +44,7 @@ const ERROR_POPUP_COPY_DEBUG_ACTION_PREFIX = 'error_popup_copy_debug_action';
 const ERROR_POPUP_RETRY_ACTION_PREFIX = 'error_popup_retry_action';
 const RUN_COMMAND_RUN_ACTION_PREFIX = 'run_command_run_action';
 const RUN_COMMAND_REJECT_ACTION_PREFIX = 'run_command_reject_action';
+const FILE_OPEN_ACTION_PREFIX = 'file_open_action';
 
 function normalizeSessionTitle(title: string): string {
     return title.trim().toLowerCase();
@@ -274,6 +275,18 @@ export function parseRunCommandCustomId(customId: string): { action: 'run' | 're
     return null;
 }
 
+export function buildFileOpenCustomId(id: string): string {
+    return `${FILE_OPEN_ACTION_PREFIX}:${id}`;
+}
+
+export function parseFileOpenCustomId(customId: string): { id: string } | null {
+    if (customId.startsWith(`${FILE_OPEN_ACTION_PREFIX}:`)) {
+        const id = customId.substring(`${FILE_OPEN_ACTION_PREFIX}:`.length);
+        return { id: id || '' };
+    }
+    return null;
+}
+
 /** Initialize the CDP bridge (lazy connection: pool creation only) */
 export function initCdpBridge(autoApproveDefault: boolean): CdpBridge {
     const pool = new CdpConnectionPool({
@@ -303,7 +316,11 @@ export function initCdpBridge(autoApproveDefault: boolean): CdpBridge {
  * Used in contexts where the workspace path is not explicitly provided,
  * such as button interactions and model/mode switching.
  */
-export function getCurrentCdp(bridge: CdpBridge): CdpService | null {
+export function getCurrentCdp(bridge: CdpBridge, preferredWorkspace?: string): CdpService | null {
+    if (preferredWorkspace) {
+        const cdp = bridge.pool.getConnected(preferredWorkspace);
+        if (cdp) return cdp;
+    }
     if (!bridge.lastActiveWorkspace) return null;
     return bridge.pool.getConnected(bridge.lastActiveWorkspace);
 }

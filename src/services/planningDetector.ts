@@ -34,64 +34,33 @@ export interface PlanningDetectorOptions {
  * and extracts plan metadata from the surrounding DOM elements.
  */
 const DETECT_PLANNING_SCRIPT = `(() => {
-    const OPEN_PATTERNS = ['open'];
-    const PROCEED_PATTERNS = ['proceed'];
+    // Check if the chat is currently generating (if generating, it's not waiting for approval)
+    const stopButtonEls = document.querySelectorAll('.lucide-square, .lucide-circle-stop, [aria-label="Stop Generation"], [aria-label="Stop Generating"], button[class*="square"]');
+    const isGenerating = Array.from(stopButtonEls).some(el => el.offsetParent !== null);
+    if (isGenerating) return null;
 
-    const normalize = (text) => (text || '').toLowerCase().replace(/\\s+/g, ' ').trim();
+    // Get the last generic message
+    const messages = Array.from(document.querySelectorAll('.leading-relaxed.select-text, .prose'));
+    if (messages.length === 0) return null;
 
-    // Find the notify container that holds planning UI
-    const container = document.querySelector('.notify-user-container');
-    if (!container) return null;
+    const lastMsg = messages[messages.length - 1];
+    const rawText = (lastMsg.innerText || lastMsg.textContent || '').trim();
+    const text = rawText.toLowerCase();
 
-    const allButtons = Array.from(container.querySelectorAll('button'))
-        .filter(btn => btn.offsetParent !== null);
+    // The Antigravity extension no longer renders a dedicated planning UI with buttons.
+    // Instead, it relies on the user typing approval in the chat.
+    const isPlan = (text.includes('implementation plan') || text.includes('plan for a way')) && 
+                   (text.includes('approve') || text.includes('review') || text.includes('proceed') || text.includes('approval') || text.includes('execute'));
 
-    const openBtn = allButtons.find(btn => {
-        const t = normalize(btn.textContent || '');
-        return OPEN_PATTERNS.some(p => t === p || t.includes(p));
-    }) || null;
+    if (!isPlan) return null;
 
-    const proceedBtn = allButtons.find(btn => {
-        const t = normalize(btn.textContent || '');
-        return PROCEED_PATTERNS.some(p => t === p || t.includes(p));
-    }) || null;
-
-    // Both buttons must exist for this to be a planning UI
-    if (!openBtn || !proceedBtn) return null;
-
-    const openText = (openBtn.textContent || '').trim();
-    const proceedText = (proceedBtn.textContent || '').trim();
-
-    // Extract plan title from .inline-flex.break-all
-    const titleEl = container.querySelector('span.inline-flex.break-all, .inline-flex.break-all');
-    const planTitle = titleEl ? (titleEl.textContent || '').trim() : '';
-
-    // Extract plan summary from span.text-sm (excluding buttons text)
-    const summaryEls = Array.from(container.querySelectorAll('span.text-sm'));
-    const planSummary = summaryEls
-        .map(el => (el.textContent || '').trim())
-        .filter(text => text.length > 0 && text !== openText && text !== proceedText)
-        .join(' ');
-
-    // Extract description from leading-relaxed container, skipping code/style blocks
-    const descEl = container.querySelector('.leading-relaxed.select-text');
-    let description = '';
-    if (descEl) {
-        const SKIP_TAGS = new Set(['PRE', 'CODE', 'STYLE', 'SCRIPT']);
-        const parts = [];
-        const walk = (node) => {
-            if (node.nodeType === 3) {
-                const t = node.textContent || '';
-                if (t.trim()) parts.push(t.trim());
-            } else if (node.nodeType === 1 && !SKIP_TAGS.has(node.tagName)) {
-                for (const child of node.childNodes) walk(child);
-            }
-        };
-        walk(descEl);
-        description = parts.join(' ').slice(0, 500);
-    }
-
-    return { openText, proceedText, planTitle, planSummary, description };
+    return {
+        openText: 'Open',
+        proceedText: 'Proceed',
+        planTitle: 'Implementation Plan',
+        planSummary: 'An implementation plan is awaiting your approval.',
+        description: rawText.substring(0, 500)
+    };
 })()`;
 
 /**
@@ -141,20 +110,29 @@ const EXTRACT_PLAN_CONTENT_SCRIPT = `(() => {
     };
 
     // Primary selector: plan content container
-    const contentContainer = document.querySelector(
-        'div.relative.pl-4.pr-4.py-1, div.relative.pl-4.pr-4'
-    );
-    if (contentContainer) {
-        const textEl = contentContainer.querySelector('.leading-relaxed.select-text');
-        if (textEl) {
-            return htmlToMd(textEl);
+    const containers = Array.from(document.querySelectorAll(
+        'div.relative.pl-4.pr-4.py-1, div.relative.pl-4.pr-4, .antigravity-artifact'
+    ));
+    if (containers.length > 0) {
+        for (let i = containers.length - 1; i >= 0; i--) {
+            const container = containers[i];
+            const textEl = container.querySelector('.leading-relaxed.select-text, .prose, .markdown-body, pre code');
+            
+            // Try specific text element first, fallback to the whole container
+            const targetEl = textEl || container;
+            const md = htmlToMd(targetEl);
+            
+            // If we found significant markdown, assume it's the plan
+            if (md && md.length > 100) {
+                return md;
+            }
         }
     }
 
-    // Fallback: any leading-relaxed.select-text with significant content
-    const allLeading = Array.from(document.querySelectorAll('.leading-relaxed.select-text'));
-    for (const el of allLeading) {
-        const md = htmlToMd(el);
+    // Fallback: any text component with significant content
+    const allLeading = Array.from(document.querySelectorAll('.leading-relaxed.select-text, .prose, .markdown-body'));
+    for (let i = allLeading.length - 1; i >= 0; i--) {
+        const md = htmlToMd(allLeading[i]);
         if (md.length > 100) {
             return md;
         }
@@ -224,37 +202,41 @@ export class PlanningDetector {
         return this.isRunning;
     }
 
-    /**
-     * Click the Open button via CDP.
-     * @param buttonText Text of the button to click (default: detected openText or "Open")
-     * @returns true if click succeeded
-     */
     async clickOpenButton(buttonText?: string): Promise<boolean> {
-        const text = buttonText ?? this.lastDetectedInfo?.openText ?? 'Open';
-        return this.clickButton(text);
+        // Mock successful open, since the UI is no longer button driven
+        return true;
     }
 
-    /**
-     * Click the Proceed button via CDP.
-     * @param buttonText Text of the button to click (default: detected proceedText or "Proceed")
-     * @returns true if click succeeded
-     */
     async clickProceedButton(buttonText?: string): Promise<boolean> {
-        const text = buttonText ?? this.lastDetectedInfo?.proceedText ?? 'Proceed';
-        return this.clickButton(text);
+        // Native UI no longer has a proceed button. Instead, we inject an approval
+        // message into the chat as if the user typed it.
+        const result = await this.cdpService.injectMessage('Looks good. Please proceed!');
+        return result.ok;
     }
 
-    /**
-     * Extract plan content from the DOM after Open has been clicked.
-     * @returns Plan content text or null if not found
-     */
     async extractPlanContent(): Promise<string | null> {
         try {
-            const result = await this.runEvaluateScript(EXTRACT_PLAN_CONTENT_SCRIPT);
-            return typeof result === 'string' ? result : null;
-        } catch (error) {
-            logger.error('[PlanningDetector] Error extracting plan content:', error);
-            return null;
+            const contextId = this.cdpService.getPrimaryContextId();
+            const callParams: Record<string, unknown> = {
+                expression: EXTRACT_PLAN_CONTENT_SCRIPT,
+                returnByValue: true,
+                awaitPromise: false,
+            };
+            if (contextId !== null) {
+                callParams.contextId = contextId;
+            }
+
+            const result = await this.cdpService.call('Runtime.evaluate', callParams);
+            const extracted = result?.result?.value;
+            
+            // If DOM extraction succeeds and isn't empty, use it. Otherwise fallback to chat description.
+            if (typeof extracted === 'string' && extracted.length > 50) {
+                return extracted;
+            }
+            return this.lastDetectedInfo?.description ?? null;
+        } catch (e) {
+            logger.error('[PlanningDetector] Error extracting plan content', e);
+            return this.lastDetectedInfo?.description ?? null;
         }
     }
 

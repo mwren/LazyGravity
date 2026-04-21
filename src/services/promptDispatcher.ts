@@ -10,14 +10,19 @@ import { ModelService } from './modelService';
 import { TitleGeneratorService } from './titleGeneratorService';
 import { InboundImageAttachment } from '../utils/imageHandler';
 import { UserPreferenceRepository } from '../database/userPreferenceRepository';
+import { WorkspaceService } from './workspaceService';
+import { FileLinkRepository } from '../database/fileLinkRepository';
 
 export interface PromptDispatchOptions {
     chatSessionService: ChatSessionService;
     chatSessionRepo: ChatSessionRepository;
     channelManager: ChannelManager;
     titleGenerator: TitleGeneratorService;
+    workspaceService: WorkspaceService;
+    fileLinkRepo?: FileLinkRepository;
     userPrefRepo?: UserPreferenceRepository;
     extractionMode?: import('../utils/config').ExtractionMode;
+    responseTimeoutMs?: number;
 }
 
 export interface PromptDispatchRequest {

@@ -41,6 +41,8 @@ export interface MessageCreateHandlerDeps {
     wsHandler: WorkspaceCommandHandler;
     chatSessionService: ChatSessionService;
     chatSessionRepo: ChatSessionRepository;
+    workspaceService: import('../services/workspaceService').WorkspaceService;
+    fileLinkRepo?: import('../database/fileLinkRepository').FileLinkRepository;
     channelManager: ChannelManager;
     titleGenerator: TitleGeneratorService;
     client: any;
@@ -60,6 +62,7 @@ export interface MessageCreateHandlerDeps {
         titleGenerator: TitleGeneratorService,
         channelManager: ChannelManager,
         cdp?: CdpService,
+        injectedPrompt?: string,
     ) => Promise<void>;
     handleScreenshot: (target: Message, cdp: CdpService | null) => Promise<void>;
     getCurrentCdp?: (bridge: CdpBridge) => CdpService | null;
@@ -199,6 +202,8 @@ export function createMessageCreateHandler(deps: MessageCreateHandlerDeps) {
                         chatSessionRepo: deps.chatSessionRepo,
                         channelManager: deps.channelManager,
                         titleGenerator: deps.titleGenerator,
+                        workspaceService: deps.workspaceService,
+                        fileLinkRepo: deps.fileLinkRepo,
                         userPrefRepo: deps.userPrefRepo,
                         extractionMode: deps.config.extractionMode,
                         responseTimeoutMs: deps.config.responseTimeoutMs,
@@ -319,8 +324,13 @@ export function createMessageCreateHandler(deps: MessageCreateHandlerDeps) {
                                         return;
                                     }
                                 }
-                            } else if (session && !session.isRenamed) {
+                            }
+                            
+                            let finalPromptText = promptText;
+
+                            if (session && !session.isRenamed) {
                                 try {
+                                    finalPromptText = `S${session.sessionNumber}: ${promptText}`;
                                     const chatResult = await deps.chatSessionService.startNewChat(cdp);
                                     if (!chatResult.ok) {
                                         logger.warn('[MessageCreate] Failed to start new chat in Antigravity:', chatResult.error);
@@ -332,7 +342,7 @@ export function createMessageCreateHandler(deps: MessageCreateHandlerDeps) {
                                 }
                             }
 
-                            await deps.autoRenameChannel(message, deps.chatSessionRepo, deps.titleGenerator, deps.channelManager, cdp);
+                            await deps.autoRenameChannel(message, deps.chatSessionRepo, deps.titleGenerator, deps.channelManager, cdp, finalPromptText);
 
                             // Re-register session channel after autoRenameChannel sets displayName
                             const updatedSession = deps.chatSessionRepo.findByChannelId(message.channelId);
@@ -343,7 +353,7 @@ export function createMessageCreateHandler(deps: MessageCreateHandlerDeps) {
                             // Register echo hash so UserMessageDetector skips this message
                             const userMsgDetector = deps.bridge.pool.getUserMessageDetector?.(projectName);
                             if (userMsgDetector) {
-                                userMsgDetector.addEchoHash(promptText);
+                                userMsgDetector.addEchoHash(finalPromptText);
                             }
 
                             // Wait for full response cycle (onComplete/onTimeout) before releasing the queue.
@@ -371,11 +381,13 @@ export function createMessageCreateHandler(deps: MessageCreateHandlerDeps) {
                                     );
                                     resolve();
                                 };
-                                deps.sendPromptToAntigravity(deps.bridge, message, promptText, cdp, deps.modeService, deps.modelService, inboundImages, {
+                                deps.sendPromptToAntigravity(deps.bridge, message, finalPromptText, cdp, deps.modeService, deps.modelService, inboundImages, {
                                     chatSessionService: deps.chatSessionService,
                                     chatSessionRepo: deps.chatSessionRepo,
                                     channelManager: deps.channelManager,
                                     titleGenerator: deps.titleGenerator,
+                                    workspaceService: deps.workspaceService,
+                                    fileLinkRepo: deps.fileLinkRepo,
                                     userPrefRepo: deps.userPrefRepo,
                                     extractionMode: deps.config.extractionMode,
                                     responseTimeoutMs: deps.config.responseTimeoutMs,

@@ -49,11 +49,13 @@
   "dependencies": {
     "@inquirer/select": "^5.1.0",
     "better-sqlite3": "^12.6.2",
+    "chrome-remote-interface": "^0.34.0",
     "commander": "^14.0.3",
     "discord.js": "^14.25.1",
     "dotenv": "^17.3.1",
     "grammy": "^1.41.1",
     "node-cron": "^4.2.1",
+    "ts-node-dev": "^2.0.0",
     "ws": "^8.19.0"
   },
   "devDependencies": {

@@ -153,11 +153,11 @@ const mirrorCommand = new SlashCommandBuilder()
 /** /output command definition */
 const outputCommand = new SlashCommandBuilder()
     .setName('output')
-    .setDescription(t('Toggle output format between Embed and Plain Text'))
+    .setDescription(t('Toggle output format between Embed, Plain Text, and Audio'))
     .addStringOption((option) =>
         option
             .setName('format')
-            .setDescription(t('embed / plain (optional direct switch)'))
+            .setDescription(t('embed / plain / audio (optional direct switch)'))
             .setRequired(false)
     );
 

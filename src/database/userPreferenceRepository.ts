@@ -3,7 +3,7 @@ import Database from 'better-sqlite3';
 /**
  * Output format preference type
  */
-export type OutputFormat = 'embed' | 'plain';
+export type OutputFormat = 'embed' | 'plain' | 'audio';
 
 /**
  * User preference record type definition
@@ -15,6 +15,8 @@ export interface UserPreferenceRecord {
     userId: string;
     /** Output format preference */
     outputFormat: OutputFormat;
+    /** Preferred TTS voice actor */
+    ttsVoice: string;
     /** Default model name (free-text, may become stale) */
     defaultModel: string | null;
     /** Creation timestamp (ISO string) */
@@ -49,6 +51,7 @@ export class UserPreferenceRepository {
             )
         `);
         this.migrateDefaultModel();
+        this.migrateTtsVoice();
     }
 
     /**
@@ -73,6 +76,25 @@ export class UserPreferenceRepository {
     }
 
     /**
+     * Safe migration: add tts_voice column if it does not exist.
+     */
+    private migrateTtsVoice(): void {
+        if (typeof this.db.pragma === 'function') {
+            const columns = this.db.pragma('table_info(user_preferences)') as { name: string }[];
+            const hasColumn = columns.some(c => c.name === 'tts_voice');
+            if (!hasColumn) {
+                this.db.exec("ALTER TABLE user_preferences ADD COLUMN tts_voice TEXT DEFAULT 'af_bella'");
+            }
+        } else {
+            try {
+                this.db.exec("ALTER TABLE user_preferences ADD COLUMN tts_voice TEXT DEFAULT 'af_bella'");
+            } catch {
+                // Column already exists
+            }
+        }
+    }
+
+    /**
      * Get the output format preference for a user.
      * Returns 'embed' as default if no preference is stored.
      */
@@ -82,7 +104,9 @@ export class UserPreferenceRepository {
         ).get(userId) as { output_format: string } | undefined;
 
         if (!row) return 'embed';
-        return row.output_format === 'plain' ? 'plain' : 'embed';
+        if (row.output_format === 'plain') return 'plain';
+        if (row.output_format === 'audio') return 'audio';
+        return 'embed';
     }
 
     /**
@@ -96,6 +120,31 @@ export class UserPreferenceRepository {
             DO UPDATE SET output_format = excluded.output_format,
                           updated_at = datetime('now')
         `).run(userId, format);
+    }
+
+    /**
+     * Get the preferred TTS voice for a user.
+     * Returns 'af_bella' if not set.
+     */
+    public getVoice(userId: string): string {
+        const row = this.db.prepare(
+            'SELECT tts_voice FROM user_preferences WHERE user_id = ?'
+        ).get(userId) as { tts_voice: string | null } | undefined;
+
+        return row?.tts_voice ?? 'af_bella';
+    }
+
+    /**
+     * Set the preferred TTS voice for a user.
+     */
+    public setVoice(userId: string, voiceId: string): void {
+        this.db.prepare(`
+            INSERT INTO user_preferences (user_id, tts_voice)
+            VALUES (?, ?)
+            ON CONFLICT(user_id)
+            DO UPDATE SET tts_voice = excluded.tts_voice,
+                          updated_at = datetime('now')
+        `).run(userId, voiceId);
     }
 
     /**
@@ -144,6 +193,7 @@ export class UserPreferenceRepository {
             id: row.id,
             userId: row.user_id,
             outputFormat: row.output_format as OutputFormat,
+            ttsVoice: row.tts_voice ?? 'af_bella',
             defaultModel: row.default_model ?? null,
             createdAt: row.created_at,
             updatedAt: row.updated_at,
