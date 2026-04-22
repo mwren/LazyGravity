@@ -8,7 +8,7 @@ import {
     AttachmentBuilder, ButtonBuilder, ButtonStyle,
     ActionRowBuilder, EmbedBuilder,
     StringSelectMenuBuilder, MessageFlags,
-    Partials,
+    Partials, TextChannel,
 } from 'discord.js';
 import Database from 'better-sqlite3';
 import fs from 'fs';
@@ -46,6 +46,7 @@ import {
     CLEANUP_DELETE_BTN,
     CLEANUP_CANCEL_BTN,
 } from '../commands/cleanupCommandHandler';
+import { cliAgentManager, CliAgentManager } from '../services/CliAgentManager';
 import { ChannelManager } from '../services/channelManager';
 import { TitleGeneratorService } from '../services/titleGeneratorService';
 import { JoinCommandHandler } from '../commands/joinCommandHandler';
@@ -1057,7 +1058,7 @@ export const startBot = async (cliLogLevel?: LogLevel) => {
     // Initialize command handlers (joinHandler is created after client, see below)
     const wsHandler = new WorkspaceCommandHandler(workspaceBindingRepo, chatSessionRepo, workspaceService, channelManager);
     const chatHandler = new ChatCommandHandler(chatSessionService, chatSessionRepo, workspaceBindingRepo, channelManager, workspaceService, bridge.pool);
-    const cleanupHandler = new CleanupCommandHandler(chatSessionRepo, workspaceBindingRepo);
+    const cleanupHandler = new CleanupCommandHandler(chatSessionRepo, workspaceBindingRepo, cliAgentManager);
 
     const slashCommandHandler = new SlashCommandHandler(templateRepo);
 
@@ -1089,6 +1090,52 @@ export const startBot = async (cliLogLevel?: LogLevel) => {
 
     client.once(Events.ClientReady, async (readyClient) => {
         logger.info(`Ready! Logged in as ${readyClient.user.tag} | extractionMode=${config.extractionMode}`);
+
+        // Register CLI agent message event
+        cliAgentManager.on('agentMessage', async (channelId: string, userId: string, text: string) => {
+            try {
+                const targetChannel = await client.channels.fetch(channelId);
+                if (targetChannel && targetChannel.isTextBased()) {
+                    const outputFormat = userPrefRepo.getOutputFormat(userId) ?? 'embed';
+                    const userVoice = userPrefRepo.getVoice(userId) ?? 'shimmer';
+
+                    const formattedText = formatForDiscord(text);
+
+                    if (outputFormat === 'audio') {
+                        // Plain text fallback
+                        const chunks = splitPlainText(formattedText);
+                        for (const chunk of chunks) {
+                            await (targetChannel as TextChannel).send(chunk);
+                        }
+
+                        try {
+                            const audioBuffer = await generateAudioStream(text, userVoice);
+                            if (audioBuffer) {
+                                await (targetChannel as TextChannel).send({ files: [{ attachment: audioBuffer, name: 'agent_response.mp3' }] });
+                            }
+                        } catch (err) {
+                            logger.error('[cliAgentManager] Audio synthesis failed:', err);
+                        }
+                    } else if (outputFormat === 'plain') {
+                        const chunks = splitPlainText(formattedText);
+                        for (const chunk of chunks) {
+                            await (targetChannel as TextChannel).send(chunk);
+                        }
+                    } else {
+                        // embed
+                        const chunks = splitForEmbedDescription(formattedText, 3500);
+                        for (const chunk of chunks) {
+                            const embed = new EmbedBuilder()
+                                .setColor(0x3498db)
+                                .setDescription(chunk);
+                            await (targetChannel as TextChannel).send({ embeds: [embed] });
+                        }
+                    }
+                }
+            } catch (err) {
+                logger.error(`[cliAgentManager] Failed to send message to Discord channel ${channelId}:`, err);
+            }
+        });
 
         try {
             await registerSlashCommands(discordToken, discordClientId, config.guildId);
@@ -1892,6 +1939,58 @@ async function handleSlashInteraction(
 
         case 'cleanup': {
             await cleanupHandler.handleCleanup(interaction);
+            break;
+        }
+
+        case 'agent': {
+            const sub = interaction.options.getSubcommand(true);
+            if (sub === 'start') {
+                const agentType = interaction.options.getString('type', true);
+                const guild = interaction.guild;
+                
+                if (!guild) {
+                    await interaction.editReply({ content: `⚠️ This command must be used in a server.` });
+                    break;
+                }
+
+                // 1. Determine CWD and Category
+                const wsPath = wsHandler.getWorkspaceForChannel(interaction.channelId);
+                const channelManager = new ChannelManager();
+                let cwd: string | undefined = undefined;
+
+                if (wsPath) {
+                    cwd = wsPath;
+                } else {
+                    cwd = process.cwd(); // Fallback to bot's root directory if not in a project
+                }
+
+                // Create or get the dedicated agent category
+                const ensureCat = await channelManager.ensureAgentCategory(guild, agentType);
+                const categoryId = ensureCat.categoryId;
+
+                // 2. Generate new channel name with random identifier
+                const randomId = Math.random().toString(36).substring(2, 6);
+                const newChannelName = `agent-${agentType}-${randomId}`;
+
+                // 3. Create the new channel under the dedicated category
+                const res = await channelManager.createSessionChannel(guild, categoryId, newChannelName);
+                const newChannelId = res.channelId;
+
+                // 4. Spawn the agent
+                const started = cliAgentManager.spawnAgent(newChannelId, interaction.user.id, agentType, [], cwd);
+                if (started) {
+                    await interaction.editReply({ content: `✅ Started CLI agent **${agentType}** in <#${newChannelId}>.\nAll messages sent to that channel will be forwarded to the agent process.` });
+                } else {
+                    await interaction.editReply({ content: `⚠️ Failed to start CLI agent.` });
+                }
+            } else if (sub === 'stop') {
+                const killed = cliAgentManager.killAgent(interaction.channelId);
+                if (killed) {
+                    await interaction.editReply({ content: `⏹️ Stopped CLI agent in this channel.` });
+                } else {
+                    await interaction.editReply({ content: `⚠️ No active CLI agent found in this channel.` });
+                }
+            }
             break;
         }
 

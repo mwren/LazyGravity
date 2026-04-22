@@ -31,6 +31,7 @@ import {
     isImageAttachment as isImageAttachmentFn,
 } from '../utils/imageHandler';
 import { logger } from '../utils/logger';
+import { cliAgentManager } from '../services/CliAgentManager';
 
 export interface MessageCreateHandlerDeps {
     config: { allowedUserIds: string[]; extractionMode?: import('../utils/config').ExtractionMode; responseTimeoutMs?: number };
@@ -212,6 +213,21 @@ export function createMessageCreateHandler(deps: MessageCreateHandlerDeps) {
                     await message.reply('Not connected to CDP. Send a message first to connect to a project.');
                 }
             }
+            return;
+        }
+
+        // --- CLI Agent Intercept ---
+        if (cliAgentManager.hasAgent(message.channelId)) {
+            const success = cliAgentManager.sendInput(message.channelId, message.content);
+            if (!success) {
+                logger.warn(`Failed to send input to agent in channel ${message.channelId}`);
+            }
+            return; // Stop further processing by LazyGravity
+        }
+
+        // If it's an agent channel but the agent process has died, don't let it fall through to Antigravity
+        if ('name' in message.channel && message.channel.name?.startsWith('agent-')) {
+            await message.reply('⚠️ The CLI agent process for this channel has exited or crashed. Start a new one with `/agent start`.').catch(() => {});
             return;
         }
 

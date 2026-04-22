@@ -81,6 +81,46 @@ export class ChannelManager {
     }
 
     /**
+     * Ensure a category exists for the given agent type.
+     * Creates a new one if it doesn't exist, returns the existing ID otherwise.
+     */
+    public async ensureAgentCategory(guild: Guild, agentType: string): Promise<EnsureCategoryResult> {
+        if (!agentType || agentType.trim() === '') {
+            throw new Error('Agent type not specified');
+        }
+
+        const capitalizedType = agentType.charAt(0).toUpperCase() + agentType.slice(1).toLowerCase();
+        const categoryName = `🤖-Agent-${capitalizedType}`;
+
+        // Search from cache first
+        let existingCategory = guild.channels.cache.find(
+            (ch) => ch.type === ChannelType.GuildCategory && ch.name === categoryName
+        );
+
+        // If not in cache, fetch all channels and retry
+        if (!existingCategory) {
+            const channels = await guild.channels.fetch();
+            const found = channels.find(
+                (ch) => ch !== null && ch !== undefined && ch.type === ChannelType.GuildCategory && ch.name === categoryName
+            );
+            if (found) {
+                existingCategory = found;
+            }
+        }
+
+        if (existingCategory) {
+            return { categoryId: existingCategory.id, created: false };
+        }
+
+        const newCategory = await guild.channels.create({
+            name: categoryName,
+            type: ChannelType.GuildCategory,
+        });
+
+        return { categoryId: newCategory.id, created: true };
+    }
+
+    /**
      * Create a new session channel under the category.
      */
     public async createSessionChannel(
