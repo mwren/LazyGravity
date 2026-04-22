@@ -13,6 +13,7 @@ import {
 } from 'discord.js';
 import { ChatSessionRepository } from '../database/chatSessionRepository';
 import { WorkspaceBindingRepository } from '../database/workspaceBindingRepository';
+import { CliAgentManager } from '../services/CliAgentManager';
 import { logger } from '../utils/logger';
 
 /** Inactive session channel info for cleanup */
@@ -55,6 +56,7 @@ export const CLEANUP_CANCEL_BTN = 'cleanup_cancel';
 export class CleanupCommandHandler {
     private readonly chatSessionRepo: ChatSessionRepository;
     private readonly bindingRepo: WorkspaceBindingRepository;
+    private readonly cliAgentManager?: CliAgentManager;
 
     /** Holds the latest scan result (referenced on button press) */
     private lastScanResult: CleanupScanResult | null = null;
@@ -62,9 +64,11 @@ export class CleanupCommandHandler {
     constructor(
         chatSessionRepo: ChatSessionRepository,
         bindingRepo: WorkspaceBindingRepository,
+        cliAgentManager?: CliAgentManager,
     ) {
         this.chatSessionRepo = chatSessionRepo;
         this.bindingRepo = bindingRepo;
+        this.cliAgentManager = cliAgentManager;
     }
 
     /**
@@ -404,10 +408,10 @@ export class CleanupCommandHandler {
         // Fetch all channels
         const allChannels = await guild.channels.fetch();
 
-        // Detect bot-managed categories (with 🗂️- prefix)
+        // Detect bot-managed categories (with 🗂️- prefix for projects, 🤖-Agent- for agents)
         const botCategories = allChannels.filter(
             (ch): ch is CategoryChannel =>
-                ch !== null && ch.type === ChannelType.GuildCategory && ch.name.startsWith('🗂️-')
+                ch !== null && ch.type === ChannelType.GuildCategory && (ch.name.startsWith('🗂️-') || ch.name.startsWith('🤖-Agent-'))
         );
 
         const inactiveSessions: InactiveSession[] = [];
@@ -430,6 +434,12 @@ export class CleanupCommandHandler {
 
             for (const [, child] of children) {
                 totalScanned++;
+
+                // Skip cleanup for active agent channels
+                if (this.cliAgentManager?.hasAgent(child.id)) {
+                    categoryHasActive = true;
+                    continue;
+                }
 
                 // Get the timestamp of the last message
                 const lastActivity = await this.getLastActivityDate(child);

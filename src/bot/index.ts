@@ -46,7 +46,7 @@ import {
     CLEANUP_DELETE_BTN,
     CLEANUP_CANCEL_BTN,
 } from '../commands/cleanupCommandHandler';
-import { cliAgentManager } from '../services/CliAgentManager';
+import { cliAgentManager, CliAgentManager } from '../services/CliAgentManager';
 import { ChannelManager } from '../services/channelManager';
 import { TitleGeneratorService } from '../services/titleGeneratorService';
 import { JoinCommandHandler } from '../commands/joinCommandHandler';
@@ -1058,7 +1058,7 @@ export const startBot = async (cliLogLevel?: LogLevel) => {
     // Initialize command handlers (joinHandler is created after client, see below)
     const wsHandler = new WorkspaceCommandHandler(workspaceBindingRepo, chatSessionRepo, workspaceService, channelManager);
     const chatHandler = new ChatCommandHandler(chatSessionService, chatSessionRepo, workspaceBindingRepo, channelManager, workspaceService, bridge.pool);
-    const cleanupHandler = new CleanupCommandHandler(chatSessionRepo, workspaceBindingRepo);
+    const cleanupHandler = new CleanupCommandHandler(chatSessionRepo, workspaceBindingRepo, cliAgentManager);
 
     const slashCommandHandler = new SlashCommandHandler(templateRepo);
 
@@ -1956,33 +1956,25 @@ async function handleSlashInteraction(
                 // 1. Determine CWD and Category
                 const wsPath = wsHandler.getWorkspaceForChannel(interaction.channelId);
                 const channelManager = new ChannelManager();
-                let categoryId: string | undefined = undefined;
                 let cwd: string | undefined = undefined;
 
                 if (wsPath) {
-                    const ensureCat = await channelManager.ensureCategory(guild, wsPath);
-                    categoryId = ensureCat.categoryId;
                     cwd = wsPath;
                 } else {
                     cwd = process.cwd(); // Fallback to bot's root directory if not in a project
                 }
 
+                // Create or get the dedicated agent category
+                const ensureCat = await channelManager.ensureAgentCategory(guild, agentType);
+                const categoryId = ensureCat.categoryId;
+
                 // 2. Generate new channel name with random identifier
                 const randomId = Math.random().toString(36).substring(2, 6);
                 const newChannelName = `agent-${agentType}-${randomId}`;
 
-                // 3. Create the new channel
-                let newChannelId: string;
-                if (categoryId) {
-                    const res = await channelManager.createSessionChannel(guild, categoryId, newChannelName);
-                    newChannelId = res.channelId;
-                } else {
-                    const newChannel = await guild.channels.create({
-                        name: newChannelName,
-                        type: 0 // ChannelType.GuildText
-                    });
-                    newChannelId = newChannel.id;
-                }
+                // 3. Create the new channel under the dedicated category
+                const res = await channelManager.createSessionChannel(guild, categoryId, newChannelName);
+                const newChannelId = res.channelId;
 
                 // 4. Spawn the agent
                 const started = cliAgentManager.spawnAgent(newChannelId, interaction.user.id, agentType, [], cwd);
