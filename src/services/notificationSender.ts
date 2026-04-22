@@ -38,6 +38,7 @@ const ERROR_POPUP_COPY_DEBUG_ACTION_PREFIX = 'error_popup_copy_debug_action';
 const ERROR_POPUP_RETRY_ACTION_PREFIX = 'error_popup_retry_action';
 const RUN_COMMAND_RUN_ACTION_PREFIX = 'run_command_run_action';
 const RUN_COMMAND_REJECT_ACTION_PREFIX = 'run_command_reject_action';
+const VSCODE_POPUP_ACTION_PREFIX = 'vscode_popup_action';
 
 // ---------------------------------------------------------------------------
 // Notification colours
@@ -243,6 +244,46 @@ export function buildRunCommandNotification(opts: {
             button(customId(RUN_COMMAND_REJECT_ACTION_PREFIX, projectName, channelId), 'Reject', 'danger'),
         ),
     ];
+
+    return { richContent, components };
+}
+
+/** Build the VS Code native popup notification message. */
+export function buildVsCodePopupNotification(opts: {
+    readonly title: string;
+    readonly text: string;
+    readonly popupType: 'dialog' | 'notification' | 'quickpick';
+    readonly buttons: readonly string[];
+    readonly projectName: string;
+    readonly channelId: string | null;
+}): MessagePayload {
+    const { title, text, popupType, buttons, projectName, channelId } = opts;
+
+    const isQuickPick = popupType === 'quickpick';
+    let warningMsg = '';
+    if (isQuickPick || buttons.length === 0) {
+        warningMsg = '\n\n**⚠️ This popup may be halting your agent. Manual intervention in VS Code is required.**';
+    }
+
+    const richContent = pipe(
+        createRichContent(),
+        (rc) => withTitle(rc, title),
+        (rc) => withDescription(rc, text + warningMsg),
+        (rc) => withColor(rc, COLOR_APPROVAL),
+        (rc) => addField(rc, 'Popup Type', popupType, true),
+        (rc) => addField(rc, 'Project', projectName, true),
+        (rc) => withFooter(rc, 'VS Code Notification detected'),
+        (rc) => withTimestamp(rc),
+    );
+
+    let components: readonly ComponentRow[] | undefined = undefined;
+    if (buttons.length > 0) {
+        // Discord allows max 5 buttons per row
+        const mappedButtons = buttons.slice(0, 5).map(btnText => 
+            button(customId(`${VSCODE_POPUP_ACTION_PREFIX}:${btnText}`, projectName, channelId), btnText, 'primary')
+        );
+        components = [buttonRow(...mappedButtons)];
+    }
 
     return { richContent, components };
 }

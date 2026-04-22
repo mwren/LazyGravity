@@ -73,6 +73,8 @@ import {
     parseErrorPopupCustomId,
     parsePlanningCustomId,
     parseRunCommandCustomId,
+    parseFileOpenCustomId,
+    parseVsCodePopupCustomId,
     buildFileOpenCustomId,
     registerApprovalSessionChannel,
     registerApprovalWorkspaceChannel,
@@ -1207,6 +1209,8 @@ export const startBot = async (cliLogLevel?: LogLevel) => {
         parseErrorPopupCustomId,
         parsePlanningCustomId,
         parseRunCommandCustomId,
+        parseFileOpenCustomId,
+        parseVsCodePopupCustomId,
         joinHandler,
         userPrefRepo,
         handleSlashInteraction: async (

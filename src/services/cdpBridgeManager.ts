@@ -8,6 +8,7 @@ import {
     buildErrorPopupNotification,
     buildRunCommandNotification,
     buildResolvedOverlay,
+    buildVsCodePopupNotification,
 } from './notificationSender';
 import { ApprovalDetector, ApprovalInfo } from './approvalDetector';
 import { AutoAcceptService } from './autoAcceptService';
@@ -18,6 +19,7 @@ import { PlanningDetector, PlanningInfo } from './planningDetector';
 import { RunCommandDetector, RunCommandInfo } from './runCommandDetector';
 import { QuotaService } from './quotaService';
 import { UserMessageDetector, UserMessageInfo } from './userMessageDetector';
+import { VsCodePopupDetector, VsCodePopupInfo } from './vsCodePopupDetector';
 
 /** CDP connection state management */
 export interface CdpBridge {
@@ -45,6 +47,7 @@ const ERROR_POPUP_RETRY_ACTION_PREFIX = 'error_popup_retry_action';
 const RUN_COMMAND_RUN_ACTION_PREFIX = 'run_command_run_action';
 const RUN_COMMAND_REJECT_ACTION_PREFIX = 'run_command_reject_action';
 const FILE_OPEN_ACTION_PREFIX = 'file_open_action';
+const VSCODE_POPUP_ACTION_PREFIX = 'vscode_popup_action';
 
 function normalizeSessionTitle(title: string): string {
     return title.trim().toLowerCase();
@@ -283,6 +286,32 @@ export function parseFileOpenCustomId(customId: string): { id: string } | null {
     if (customId.startsWith(`${FILE_OPEN_ACTION_PREFIX}:`)) {
         const id = customId.substring(`${FILE_OPEN_ACTION_PREFIX}:`.length);
         return { id: id || '' };
+    }
+    return null;
+}
+
+export function buildVsCodePopupCustomId(
+    buttonText: string,
+    projectName: string,
+    channelId?: string,
+): string {
+    const safeText = buttonText.replace(/:/g, '_');
+    if (channelId && channelId.trim().length > 0) {
+        return `${VSCODE_POPUP_ACTION_PREFIX}:${safeText}:${projectName}:${channelId}`;
+    }
+    return `${VSCODE_POPUP_ACTION_PREFIX}:${safeText}:${projectName}`;
+}
+
+export function parseVsCodePopupCustomId(customId: string): { buttonText: string; projectName: string | null; channelId: string | null } | null {
+    if (customId.startsWith(`${VSCODE_POPUP_ACTION_PREFIX}:`)) {
+        const rest = customId.substring(`${VSCODE_POPUP_ACTION_PREFIX}:`.length);
+        const parts = rest.split(':');
+        if (parts.length >= 2) {
+            const buttonText = parts[0];
+            const projectName = parts[1];
+            const channelId = parts.length >= 3 ? parts[2] : null;
+            return { buttonText, projectName, channelId };
+        }
     }
     return null;
 }
@@ -661,4 +690,68 @@ export function ensureUserMessageDetector(
     detector.start();
     bridge.pool.registerUserMessageDetector(projectName, detector);
     logger.debug(`[UserMessageDetector:${projectName}] Started user message detection`);
+}
+
+/**
+ * Helper to start a VS Code popup detector for each workspace.
+ * Detects native VS Code modals, notifications, and QuickPicks.
+ * Does nothing if a detector for the same workspace is already running.
+ */
+export function ensureVsCodePopupDetector(
+    bridge: CdpBridge,
+    cdp: CdpService,
+    projectName: string,
+): void {
+    const existing = bridge.pool.getVsCodePopupDetector(projectName);
+    if (existing && existing.isActive()) return;
+
+    let lastNotification: { sent: PlatformSentMessage; payload: MessagePayload } | null = null;
+
+    const detector = new VsCodePopupDetector({
+        cdpService: cdp,
+        pollIntervalMs: 2000,
+        onResolved: () => {
+            if (!lastNotification) return;
+            const { sent, payload } = lastNotification;
+            lastNotification = null;
+            const resolved = buildResolvedOverlay(payload, t('Resolved in VS Code'));
+            sent.edit(resolved).catch(logger.error);
+        },
+        onPopupDetected: async (info: VsCodePopupInfo) => {
+            logger.debug(`[VsCodePopupDetector:${projectName}] VS Code popup detected (type="${info.type}")`);
+
+            const currentChatTitle = await getCurrentChatTitle(cdp);
+            const targetChannel = resolveApprovalChannelForCurrentChat(bridge, projectName, currentChatTitle);
+            const targetChannelId = targetChannel ? targetChannel.id : '';
+
+            if (!targetChannel || !targetChannelId) {
+                logger.warn(
+                    `[VsCodePopupDetector:${projectName}] Skipped popup notification because chat is not linked to a session` +
+                    `${currentChatTitle ? ` (title="${currentChatTitle}")` : ''}`,
+                );
+                return;
+            }
+
+            const payload = buildVsCodePopupNotification({
+                title: t('VS Code Request'),
+                text: info.text,
+                popupType: info.type,
+                buttons: info.buttons,
+                projectName,
+                channelId: targetChannelId,
+            });
+
+            const sent = await targetChannel.send(payload).catch((err: any) => {
+                logger.error(err);
+                return null;
+            });
+            if (sent) {
+                lastNotification = { sent, payload };
+            }
+        },
+    });
+
+    detector.start();
+    bridge.pool.registerVsCodePopupDetector(projectName, detector);
+    logger.debug(`[VsCodePopupDetector:${projectName}] Started VS Code popup detection`);
 }
