@@ -1341,6 +1341,22 @@ export const startBot = async (cliLogLevel?: LogLevel) => {
             } catch (err) {
                 logger.error('Failed to generate TTS from reaction:', err);
             }
+        } else if (reaction.emoji.name === '📄') {
+            try {
+                if (reaction.partial) await reaction.fetch();
+                if (reaction.message.partial) await reaction.message.fetch();
+
+                const content = reaction.message.embeds?.[0]?.description;
+                if (!content || !content.trim()) return;
+
+                const buffer = Buffer.from(content, 'utf-8');
+                await user.send({
+                    content: `📄 Here is the plaintext version of the message you reacted to in <#${reaction.message.channelId}>:`,
+                    files: [{ attachment: buffer, name: 'extracted_message.md' }]
+                });
+            } catch (err) {
+                logger.error('Failed to extract plaintext from reaction:', err);
+            }
         }
     });
 
