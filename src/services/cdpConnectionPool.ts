@@ -6,6 +6,7 @@ import { ErrorPopupDetector } from './errorPopupDetector';
 import { PlanningDetector } from './planningDetector';
 import { RunCommandDetector } from './runCommandDetector';
 import { UserMessageDetector } from './userMessageDetector';
+import { VsCodePopupDetector } from './vsCodePopupDetector';
 
 /**
  * Pool that manages independent CdpService instances per workspace.
@@ -21,6 +22,7 @@ export class CdpConnectionPool {
     private readonly planningDetectors = new Map<string, PlanningDetector>();
     private readonly runCommandDetectors = new Map<string, RunCommandDetector>();
     private readonly userMessageDetectors = new Map<string, UserMessageDetector>();
+    private readonly vsCodePopupDetectors = new Map<string, VsCodePopupDetector>();
     private readonly connectingPromises = new Map<string, Promise<CdpService>>();
     private readonly cdpOptions: CdpServiceOptions;
 
@@ -117,6 +119,12 @@ export class CdpConnectionPool {
         if (userMsgDetector) {
             userMsgDetector.stop();
             this.userMessageDetectors.delete(projectName);
+        }
+
+        const vsCodePopupDetector = this.vsCodePopupDetectors.get(projectName);
+        if (vsCodePopupDetector) {
+            vsCodePopupDetector.stop();
+            this.vsCodePopupDetectors.delete(projectName);
         }
     }
 
@@ -223,6 +231,24 @@ export class CdpConnectionPool {
     }
 
     /**
+     * Register a VS Code popup detector for a workspace.
+     */
+    registerVsCodePopupDetector(projectName: string, detector: VsCodePopupDetector): void {
+        const existing = this.vsCodePopupDetectors.get(projectName);
+        if (existing && existing.isActive()) {
+            existing.stop();
+        }
+        this.vsCodePopupDetectors.set(projectName, detector);
+    }
+
+    /**
+     * Get the VS Code popup detector for a workspace.
+     */
+    getVsCodePopupDetector(projectName: string): VsCodePopupDetector | undefined {
+        return this.vsCodePopupDetectors.get(projectName);
+    }
+
+    /**
      * Return a list of workspace names with active connections.
      */
     getActiveWorkspaceNames(): string[] {
@@ -289,6 +315,11 @@ export class CdpConnectionPool {
             if (userMsgDetector) {
                 userMsgDetector.stop();
                 this.userMessageDetectors.delete(projectName);
+            }
+            const vsCodePopupDetector = this.vsCodePopupDetectors.get(projectName);
+            if (vsCodePopupDetector) {
+                vsCodePopupDetector.stop();
+                this.vsCodePopupDetectors.delete(projectName);
             }
         });
 

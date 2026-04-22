@@ -37,7 +37,15 @@ import {
 import { SlashCommandHandler } from '../commands/slashCommandHandler';
 import { WorkspaceCommandHandler } from '../commands/workspaceCommandHandler';
 import { PROJECT_PAGE_PREFIX, parseProjectPageId, isProjectSelectId } from '../ui/projectListUi';
-import { CdpBridge } from '../services/cdpBridgeManager';
+import {
+    CdpBridge,
+    parseApprovalCustomId as parseApprovalCustomIdFn,
+    parsePlanningCustomId as parsePlanningCustomIdFn,
+    parseErrorPopupCustomId as parseErrorPopupCustomIdFn,
+    parseRunCommandCustomId as parseRunCommandCustomIdFn,
+    parseFileOpenCustomId as parseFileOpenCustomIdFn,
+    parseVsCodePopupCustomId as parseVsCodePopupCustomIdFn,
+} from '../services/cdpBridgeManager';
 import { CdpService } from '../services/cdpService';
 import { MODE_DISPLAY_NAMES, ModeService } from '../services/modeService';
 import { ModelService } from '../services/modelService';
@@ -73,6 +81,8 @@ export interface InteractionCreateHandlerDeps {
     parsePlanningCustomId: (customId: string) => { action: 'open' | 'proceed'; projectName: string | null; channelId: string | null } | null;
     parseErrorPopupCustomId: (customId: string) => { action: 'dismiss' | 'copy_debug' | 'retry'; projectName: string | null; channelId: string | null } | null;
     parseRunCommandCustomId: (customId: string) => { action: 'run' | 'reject'; projectName: string | null; channelId: string | null } | null;
+    parseFileOpenCustomId: (customId: string) => { id: string } | null;
+    parseVsCodePopupCustomId: (customId: string) => { buttonText: string; projectName: string | null; channelId: string | null } | null;
     handleSlashInteraction: (
         interaction: ChatInputCommandInteraction,
         handler: SlashCommandHandler,
@@ -517,6 +527,66 @@ export function createInteractionCreateHandler(deps: InteractionCreateHandlerDep
                         } else {
                             throw interactionError;
                         }
+                    }
+                    return;
+                }
+
+                const vsCodePopupAction = deps.parseVsCodePopupCustomId(interaction.customId);
+                if (vsCodePopupAction) {
+                    if (vsCodePopupAction.channelId && vsCodePopupAction.channelId !== interaction.channelId) {
+                        await interaction.reply({
+                            content: t('This popup action is linked to a different session channel.'),
+                            flags: MessageFlags.Ephemeral,
+                        }).catch(logger.error);
+                        return;
+                    }
+
+                    const popupWorkspaceDirName = vsCodePopupAction.projectName ?? deps.bridge.lastActiveWorkspace;
+                    const popupDetector = popupWorkspaceDirName
+                        ? deps.bridge.pool.getVsCodePopupDetector(popupWorkspaceDirName)
+                        : undefined;
+
+                    if (!popupDetector) {
+                        try {
+                            await interaction.reply({ content: t('VS Code popup detector not found.'), flags: MessageFlags.Ephemeral });
+                        } catch { /* ignore */ }
+                        return;
+                    }
+
+                    try {
+                        const clicked = await popupDetector.clickButton(vsCodePopupAction.buttonText);
+
+                        const originalEmbed = interaction.message.embeds[0];
+                        const updatedEmbed = originalEmbed
+                            ? EmbedBuilder.from(originalEmbed)
+                            : new EmbedBuilder().setTitle('VS Code Popup');
+                        const historyText = `Selected "${vsCodePopupAction.buttonText}" by <@${interaction.user.id}> (${new Date().toLocaleString('ja-JP')})`;
+                        updatedEmbed
+                            .setColor(clicked ? 0x95A5A6 : 0xE74C3C)
+                            .addFields({ name: 'Action History', value: historyText, inline: false })
+                            .setTimestamp();
+
+                        try {
+                            await interaction.update({
+                                embeds: [updatedEmbed],
+                                components: disableAllButtons(interaction.message.components),
+                            });
+                        } catch (interactionError: any) {
+                            if (interactionError?.code === 10062 || interactionError?.code === 40060) {
+                                logger.warn('[VsCodePopup] Interaction expired. Responding directly in the channel.');
+                                if (interaction.channel && 'send' in interaction.channel) {
+                                    const fallbackMessage = clicked
+                                        ? t('Button clicked successfully.')
+                                        : t('Button not found.');
+                                    await (interaction.channel as any).send(fallbackMessage).catch(logger.error);
+                                }
+                            } else {
+                                throw interactionError;
+                            }
+                        }
+                    } catch (err) {
+                        logger.error('[VsCodePopup] Error handling button interaction:', err);
+                        await interaction.reply({ content: t('An error occurred while handling the popup button.'), flags: MessageFlags.Ephemeral });
                     }
                     return;
                 }
