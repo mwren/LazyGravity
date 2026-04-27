@@ -1064,6 +1064,9 @@ export const startBot = async (cliLogLevel?: LogLevel) => {
 
     const slashCommandHandler = new SlashCommandHandler(templateRepo);
 
+    // Shared manager to access platform-specific queue locks
+    const queueLockManager: { discord?: any; telegram?: any } = {};
+
     // Discord platform — only initialise the Discord client when the platform is enabled
     if (config.platforms.includes('discord')) {
 
@@ -1213,6 +1216,7 @@ export const startBot = async (cliLogLevel?: LogLevel) => {
         parseVsCodePopupCustomId,
         joinHandler,
         userPrefRepo,
+        queueLockManager,
         handleSlashInteraction: async (
             interaction,
             handler,
@@ -1239,6 +1243,7 @@ export const startBot = async (cliLogLevel?: LogLevel) => {
             templateRepo,
             joinHandler,
             userPrefRepo,
+            queueLockManager,
         ),
         handleTemplateUse: async (interaction, templateId) => {
             const template = templateRepo.findById(templateId);
@@ -1365,7 +1370,7 @@ export const startBot = async (cliLogLevel?: LogLevel) => {
     });
 
     // [Text message handler]
-    client.on(Events.MessageCreate, createMessageCreateHandler({
+    const discordMsgHandler = createMessageCreateHandler({
         config,
         bridge,
         modeService,
@@ -1398,7 +1403,9 @@ export const startBot = async (cliLogLevel?: LogLevel) => {
         autoRenameChannel,
         handleScreenshot,
         userPrefRepo,
-    }));
+    });
+    queueLockManager.discord = discordMsgHandler;
+    client.on(Events.MessageCreate, discordMsgHandler);
 
     await client.login(discordToken);
 
@@ -1443,7 +1450,9 @@ export const startBot = async (cliLogLevel?: LogLevel) => {
                 botApi: telegramBot.api as any,
                 chatSessionService,
                 responseTimeoutMs: config.responseTimeoutMs,
+                queueLockManager,
             });
+            queueLockManager.telegram = telegramHandler;
 
             // Compose select handlers: project select + mode select
             const projectSelectHandler = createTelegramSelectHandler({
@@ -1626,6 +1635,7 @@ async function handleSlashInteraction(
     templateRepo: TemplateRepository,
     joinHandler?: JoinCommandHandler,
     userPrefRepo?: UserPreferenceRepository,
+    queueLockManager?: { discord?: any; telegram?: any },
 ): Promise<void> {
     const commandName = interaction.commandName;
 
@@ -1689,6 +1699,7 @@ async function handleSlashInteraction(
                         '`/autoaccept` — Toggle auto-approve mode for approval dialogs via buttons',
                         '`/logs [lines] [level]` — View recent bot logs',
                         '`/cleanup [days]` — Clean up unused channels/categories',
+                        '`/unlock` — Force-release the workspace queue lock for a project',
                         '`/help` — Show this help',
                     ].join('\n')
                 },
@@ -2040,6 +2051,26 @@ async function handleSlashInteraction(
                 : `\`\`\`\n${formatted.slice(0, MAX_CONTENT)}\n\`\`\`\n(truncated — showing ${MAX_CONTENT} chars of ${formatted.length})`;
 
             await interaction.editReply({ content: codeBlock });
+            break;
+        }
+
+        case 'unlock': {
+            const workspacePath = wsHandler.getWorkspaceForChannel(interaction.channelId);
+            if (!workspacePath) {
+                await interaction.editReply({ content: 'No project is bound to this channel. Use `/project` first.' });
+                break;
+            }
+            const projectName = bridge.pool.extractProjectName(workspacePath);
+
+            // Clear from both queues if possible
+            if (queueLockManager?.discord?.unlockWorkspace) {
+                queueLockManager.discord.unlockWorkspace(workspacePath);
+            }
+            if (queueLockManager?.telegram?.unlockWorkspace) {
+                queueLockManager.telegram.unlockWorkspace(workspacePath);
+            }
+
+            await interaction.editReply({ content: `✅ Force-released the queue lock for **${projectName}**.` });
             break;
         }
 
