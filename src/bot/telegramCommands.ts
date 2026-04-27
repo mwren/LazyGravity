@@ -41,7 +41,7 @@ import { logger } from '../utils/logger';
 // Known commands (used by both parser and /help output)
 // ---------------------------------------------------------------------------
 
-const KNOWN_COMMANDS = ['start', 'help', 'status', 'stop', 'ping', 'mode', 'model', 'screenshot', 'autoaccept', 'template', 'template_add', 'template_delete', 'project_create', 'logs', 'new'] as const;
+const KNOWN_COMMANDS = ['start', 'help', 'status', 'stop', 'ping', 'mode', 'model', 'screenshot', 'autoaccept', 'template', 'template_add', 'template_delete', 'project_create', 'logs', 'new', 'unlock'] as const;
 type KnownCommand = typeof KNOWN_COMMANDS[number];
 
 // ---------------------------------------------------------------------------
@@ -95,6 +95,7 @@ export interface TelegramCommandDeps {
     /** Shared map of active ResponseMonitors keyed by project name.
      *  Used by /stop to halt monitoring and prevent stale re-sends. */
     readonly activeMonitors?: Map<string, ResponseMonitor>;
+    readonly queueLockManager?: { discord?: any; telegram?: any };
 }
 
 // ---------------------------------------------------------------------------
@@ -159,6 +160,9 @@ export async function handleTelegramCommand(
         case 'new':
             await handleNew(deps, message);
             break;
+        case 'unlock':
+            await handleUnlock(deps, message);
+            break;
         default:
             // Should not happen — parser filters unknowns
             break;
@@ -203,6 +207,7 @@ async function handleHelp(message: PlatformMessage): Promise<void> {
         '/logs — Show recent log entries',
         '/stop — Interrupt active LLM generation',
         '/ping — Check bot latency',
+        '/unlock — Force-release the workspace queue lock',
         '/help — Show this help message',
         '',
         'Any other message is forwarded to Antigravity.',
@@ -510,6 +515,32 @@ async function handleNew(deps: TelegramCommandDeps, message: PlatformMessage): P
         logger.error('[TelegramCommand:new] startNewChat threw:', err?.message || err);
         await message.reply({ text: 'Failed to start new chat.' }).catch(logger.error);
     }
+}
+
+async function handleUnlock(deps: TelegramCommandDeps, message: PlatformMessage): Promise<void> {
+    const chatId = message.channel.id;
+    const binding = deps.telegramBindingRepo?.findByChatId(chatId);
+    
+    if (!binding) {
+        await message.reply({ text: 'No project is linked to this chat. Use /project first.' }).catch(logger.error);
+        return;
+    }
+
+    const workspacePath = deps.workspaceService
+        ? deps.workspaceService.getWorkspacePath(binding.workspacePath)
+        : binding.workspacePath;
+
+    const projectName = deps.bridge.pool.extractProjectName(workspacePath);
+
+    // Clear from both queues if possible
+    if (deps.queueLockManager?.discord?.unlockWorkspace) {
+        deps.queueLockManager.discord.unlockWorkspace(workspacePath);
+    }
+    if (deps.queueLockManager?.telegram?.unlockWorkspace) {
+        deps.queueLockManager.telegram.unlockWorkspace(workspacePath);
+    }
+
+    await message.reply({ text: `✅ Force-released the queue lock for <b>${escapeHtml(projectName)}</b>.` }).catch(logger.error);
 }
 
 // ---------------------------------------------------------------------------

@@ -49,6 +49,7 @@ export interface TelegramMessageHandlerDeps {
     readonly chatSessionService?: ChatSessionService;
     /** Response monitor inactivity timeout in ms. Defaults to ResponseMonitor default (900000). */
     readonly responseTimeoutMs?: number;
+    readonly queueLockManager?: { discord?: any; telegram?: any };
 }
 
 /**
@@ -75,7 +76,7 @@ export function createTelegramMessageHandler(deps: TelegramMessageHandlerDeps) {
         return next;
     }
 
-    return async (message: PlatformMessage): Promise<void> => {
+    const handler = async (message: PlatformMessage): Promise<void> => {
         const handlerEntryTime = Date.now();
         const chatId = message.channel.id;
         const hasImageAttachments = message.attachments.length > 0
@@ -101,6 +102,7 @@ export function createTelegramMessageHandler(deps: TelegramMessageHandlerDeps) {
                     fetchQuota: deps.fetchQuota,
                     activeMonitors: deps.activeMonitors,
                     chatSessionService: deps.chatSessionService,
+                    queueLockManager: deps.queueLockManager,
                 },
                 message,
                 cmd,
@@ -364,6 +366,13 @@ export function createTelegramMessageHandler(deps: TelegramMessageHandlerDeps) {
             });
         });
     };
+
+    return Object.assign(handler, {
+        unlockWorkspace(workspacePath: string) {
+            workspaceQueues.delete(workspacePath);
+            logger.info(`[TelegramQueue] Forcefully unlocked queue for ${workspacePath}`);
+        }
+    });
 }
 
 /** Split long text into Telegram-safe chunks (max 4096 chars). */

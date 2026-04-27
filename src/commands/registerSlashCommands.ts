@@ -75,6 +75,11 @@ const screenshotCommand = new SlashCommandBuilder()
     .setName('screenshot')
     .setDescription(t('Capture current Antigravity screen'));
 
+/** /unlock command definition */
+const unlockCommand = new SlashCommandBuilder()
+    .setName('unlock')
+    .setDescription(t('Force-release the workspace queue lock for the current project'));
+
 /** /status command definition (formerly /cdp status, extended to overall bot status) */
 const statusCommand = new SlashCommandBuilder()
     .setName('status')
@@ -233,6 +238,7 @@ export const slashCommands = [
     agentCommand,
     pingCommand,
     logsCommand,
+    unlockCommand,
 ];
 
 /**

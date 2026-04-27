@@ -99,6 +99,7 @@ export interface InteractionCreateHandlerDeps {
     joinHandler?: JoinCommandHandler;
     userPrefRepo?: UserPreferenceRepository;
     fileLinkRepo?: FileLinkRepository;
+    queueLockManager?: { discord?: any; telegram?: any };
 }
 
 export function createInteractionCreateHandler(deps: InteractionCreateHandlerDeps) {

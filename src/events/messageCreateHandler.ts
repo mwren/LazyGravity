@@ -112,7 +112,7 @@ export function createMessageCreateHandler(deps: MessageCreateHandlerDeps) {
         return next;
     }
 
-    return async (message: Message): Promise<void> => {
+    const handler = async (message: Message): Promise<void> => {
         if (message.author.bot) return;
 
         if (!deps.config.allowedUserIds.includes(message.author.id)) {
@@ -443,4 +443,12 @@ export function createMessageCreateHandler(deps: MessageCreateHandlerDeps) {
             }
         }
     };
+
+    return Object.assign(handler, {
+        unlockWorkspace(workspacePath: string) {
+            workspaceQueues.delete(workspacePath);
+            workspaceQueueDepths.set(workspacePath, 0);
+            logger.info(`[Queue] Forcefully unlocked queue for ${workspacePath}`);
+        }
+    });
 }
